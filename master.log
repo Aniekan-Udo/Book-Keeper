@@ -1,0 +1,169 @@
+[2026-07-12 19:33:23,995] Aniekans-MacBook-Air/INFO/locust.main: Starting Locust 2.45.0
+[2026-07-12 19:33:23,998] Aniekans-MacBook-Air/INFO/locust.main: Starting web interface at http://0.0.0.0:8089, press enter to open your default browser.
+[2026-07-12 19:34:31,984] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_1188df49434044028c92aceed3134dc6 (index 0) reported as ready. 1 workers connected.
+[2026-07-12 19:34:31,984] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_80eb467eaec94214b7b8a5b46d362457 (index 1) reported as ready. 2 workers connected.
+[2026-07-12 19:35:21,700] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 3000 users at 100.00 spawn rate to 2 ready workers
+[2026-07-12 19:35:50,786] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 3000} (3000 total users)
+[2026-07-12 19:47:14,085] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_80eb467eaec94214b7b8a5b46d362457 (index 1) reported that it has stopped
+[2026-07-12 19:47:14,086] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_80eb467eaec94214b7b8a5b46d362457 (index 1) reported as ready. 2 workers connected.
+[2026-07-12 19:47:14,088] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_1188df49434044028c92aceed3134dc6 (index 0) reported that it has stopped
+[2026-07-12 19:47:14,088] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_1188df49434044028c92aceed3134dc6 (index 0) reported as ready. 2 workers connected.
+[2026-07-12 19:47:28,117] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 2000 users at 100.00 spawn rate to 2 ready workers
+[2026-07-12 19:47:47,195] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 2000} (2000 total users)
+[2026-07-12 19:53:26,299] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_1188df49434044028c92aceed3134dc6 (index 0) reported that it has stopped
+[2026-07-12 19:53:26,300] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_1188df49434044028c92aceed3134dc6 (index 0) reported as ready. 2 workers connected.
+[2026-07-12 19:53:26,301] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_80eb467eaec94214b7b8a5b46d362457 (index 1) reported that it has stopped
+[2026-07-12 19:53:26,301] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_80eb467eaec94214b7b8a5b46d362457 (index 1) reported as ready. 2 workers connected.
+[2026-07-12 19:53:48,578] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 2500 users at 100.00 spawn rate to 2 ready workers
+[2026-07-12 19:54:12,669] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 2500} (2500 total users)
+[2026-07-12 20:14:26,488] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 2500 users at 100.00 spawn rate to 1 ready workers
+[2026-07-12 20:14:27,493] Aniekans-MacBook-Air/INFO/locust.runners: Spawning is complete and report waittime is expired, but not all reports received from workers: {"APIUser": 1250} (1250 total users)
+[2026-07-12 20:14:27,494] Aniekans-MacBook-Air/INFO/locust.runners: Worker 'Aniekans-MacBook-Air.local_1188df49434044028c92aceed3134dc6' (index 0) quit. 0 workers ready.
+[2026-07-12 20:14:27,941] Aniekans-MacBook-Air/INFO/locust.runners: Worker 'Aniekans-MacBook-Air.local_80eb467eaec94214b7b8a5b46d362457' (index 1) quit. 0 workers ready.
+[2026-07-12 20:14:27,942] Aniekans-MacBook-Air/INFO/locust.runners: The last worker quit, stopping test.
+[2026-07-12 23:22:14,274] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_ca3ee6e99b2643bda61749cf3c141a0d (index 2) reported as ready. 1 workers connected.
+[2026-07-12 23:22:14,276] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_a30e536e90654796b7563a3340c4d89f (index 3) reported as ready. 2 workers connected.
+[2026-07-12 23:23:37,486] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 10 users at 1.00 spawn rate to 2 ready workers
+[2026-07-12 23:23:46,577] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 10} (10 total users)
+[2026-07-12 23:24:46,823] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_ca3ee6e99b2643bda61749cf3c141a0d (index 2) reported that it has stopped
+[2026-07-12 23:24:46,823] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_ca3ee6e99b2643bda61749cf3c141a0d (index 2) reported as ready. 2 workers connected.
+[2026-07-12 23:24:46,823] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_a30e536e90654796b7563a3340c4d89f (index 3) reported that it has stopped
+[2026-07-12 23:24:46,823] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_a30e536e90654796b7563a3340c4d89f (index 3) reported as ready. 2 workers connected.
+[2026-07-12 23:24:57,536] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 10 users at 1.00 spawn rate to 2 ready workers
+[2026-07-12 23:25:06,624] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 10} (10 total users)
+[2026-07-12 23:29:14,358] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_a30e536e90654796b7563a3340c4d89f (index 3) reported that it has stopped
+[2026-07-12 23:29:14,359] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_a30e536e90654796b7563a3340c4d89f (index 3) reported as ready. 2 workers connected.
+[2026-07-12 23:29:14,360] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_ca3ee6e99b2643bda61749cf3c141a0d (index 2) reported that it has stopped
+[2026-07-12 23:29:14,360] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_ca3ee6e99b2643bda61749cf3c141a0d (index 2) reported as ready. 2 workers connected.
+[2026-07-12 23:29:31,072] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 20 users at 2.00 spawn rate to 2 ready workers
+[2026-07-12 23:29:40,134] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 20} (20 total users)
+[2026-07-12 23:31:21,275] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 50 users at 2.00 spawn rate to 2 ready workers
+[2026-07-12 23:31:35,394] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 50} (50 total users)
+[2026-07-12 23:33:36,548] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_ca3ee6e99b2643bda61749cf3c141a0d (index 2) reported that it has stopped
+[2026-07-12 23:33:36,549] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_a30e536e90654796b7563a3340c4d89f (index 3) reported that it has stopped
+[2026-07-12 23:33:36,549] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_ca3ee6e99b2643bda61749cf3c141a0d (index 2) reported as ready. 1 workers connected.
+[2026-07-12 23:33:36,550] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_a30e536e90654796b7563a3340c4d89f (index 3) reported as ready. 2 workers connected.
+[2026-07-12 23:33:56,325] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 90 users at 5.00 spawn rate to 2 ready workers
+[2026-07-12 23:34:13,435] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 90} (90 total users)
+[2026-07-12 23:35:32,516] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_a30e536e90654796b7563a3340c4d89f (index 3) reported that it has stopped
+[2026-07-12 23:35:32,517] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_a30e536e90654796b7563a3340c4d89f (index 3) reported as ready. 2 workers connected.
+[2026-07-12 23:35:32,518] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_ca3ee6e99b2643bda61749cf3c141a0d (index 2) reported that it has stopped
+[2026-07-12 23:35:32,518] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_ca3ee6e99b2643bda61749cf3c141a0d (index 2) reported as ready. 2 workers connected.
+[2026-07-12 23:35:57,324] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 200 users at 20.00 spawn rate to 2 ready workers
+[2026-07-12 23:36:06,418] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 200} (200 total users)
+[2026-07-12 23:37:56,836] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_ca3ee6e99b2643bda61749cf3c141a0d (index 2) reported that it has stopped
+[2026-07-12 23:37:56,837] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_ca3ee6e99b2643bda61749cf3c141a0d (index 2) reported as ready. 2 workers connected.
+[2026-07-12 23:37:56,837] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_a30e536e90654796b7563a3340c4d89f (index 3) reported that it has stopped
+[2026-07-12 23:37:56,838] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_a30e536e90654796b7563a3340c4d89f (index 3) reported as ready. 2 workers connected.
+[2026-07-12 23:38:21,343] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 1000 users at 50.00 spawn rate to 2 ready workers
+[2026-07-12 23:38:40,459] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 1000} (1000 total users)
+[2026-07-13 00:12:34,532] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 1000 users at 50.00 spawn rate to 1 ready workers
+[2026-07-13 00:12:35,534] Aniekans-MacBook-Air/INFO/locust.runners: Spawning is complete and report waittime is expired, but not all reports received from workers: {"APIUser": 500} (500 total users)
+[2026-07-13 00:12:35,535] Aniekans-MacBook-Air/INFO/locust.runners: Worker 'Aniekans-MacBook-Air.local_a30e536e90654796b7563a3340c4d89f' (index 3) quit. 0 workers ready.
+[2026-07-13 00:12:35,535] Aniekans-MacBook-Air/INFO/locust.runners: Worker 'Aniekans-MacBook-Air.local_ca3ee6e99b2643bda61749cf3c141a0d' (index 2) quit. 0 workers ready.
+[2026-07-13 00:12:35,536] Aniekans-MacBook-Air/INFO/locust.runners: The last worker quit, stopping test.
+[2026-07-13 09:19:47,246] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported as ready. 1 workers connected.
+[2026-07-13 09:19:47,247] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported as ready. 2 workers connected.
+[2026-07-13 09:22:18,704] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 10 users at 1.00 spawn rate to 2 ready workers
+[2026-07-13 09:22:27,792] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 10} (10 total users)
+[2026-07-13 09:29:24,535] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 10 users at 1.00 spawn rate to 3 ready workers
+[2026-07-13 09:29:24,536] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 10} (10 total users)
+[2026-07-13 09:29:24,536] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported as ready. 3 workers connected.
+[2026-07-13 09:29:24,536] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported as ready. 4 workers connected.
+[2026-07-13 09:29:58,060] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported that it has stopped
+[2026-07-13 09:29:58,061] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported as ready. 4 workers connected.
+[2026-07-13 09:29:58,061] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported that it has stopped
+[2026-07-13 09:29:58,061] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported that it has stopped
+[2026-07-13 09:29:58,061] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported that it has stopped
+[2026-07-13 09:29:58,061] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported as ready. 2 workers connected.
+[2026-07-13 09:29:58,061] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported as ready. 3 workers connected.
+[2026-07-13 09:29:58,061] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported as ready. 4 workers connected.
+[2026-07-13 09:30:08,826] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 10 users at 1.00 spawn rate to 4 ready workers
+[2026-07-13 09:30:17,927] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 10} (10 total users)
+[2026-07-13 09:41:04,045] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported that it has stopped
+[2026-07-13 09:41:04,047] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported that it has stopped
+[2026-07-13 09:41:04,047] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported that it has stopped
+[2026-07-13 09:41:04,047] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported that it has stopped
+[2026-07-13 09:41:04,047] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported as ready. 1 workers connected.
+[2026-07-13 09:41:04,047] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported as ready. 2 workers connected.
+[2026-07-13 09:41:04,048] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported as ready. 3 workers connected.
+[2026-07-13 09:41:04,048] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported as ready. 4 workers connected.
+[2026-07-13 09:41:19,529] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 10 users at 1.00 spawn rate to 4 ready workers
+[2026-07-13 09:41:28,619] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 10} (10 total users)
+[2026-07-13 09:44:58,624] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported that it has stopped
+[2026-07-13 09:44:58,626] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported as ready. 4 workers connected.
+[2026-07-13 09:44:58,626] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported that it has stopped
+[2026-07-13 09:44:58,626] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported that it has stopped
+[2026-07-13 09:44:58,626] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported that it has stopped
+[2026-07-13 09:44:58,626] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported as ready. 2 workers connected.
+[2026-07-13 09:44:58,626] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported as ready. 3 workers connected.
+[2026-07-13 09:44:58,627] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported as ready. 4 workers connected.
+[2026-07-13 09:45:20,322] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 20 users at 2.00 spawn rate to 4 ready workers
+[2026-07-13 09:45:29,403] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 20} (20 total users)
+[2026-07-13 09:48:27,217] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported that it has stopped
+[2026-07-13 09:48:27,218] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported that it has stopped
+[2026-07-13 09:48:27,218] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported that it has stopped
+[2026-07-13 09:48:27,218] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported that it has stopped
+[2026-07-13 09:48:27,219] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported as ready. 1 workers connected.
+[2026-07-13 09:48:27,219] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported as ready. 2 workers connected.
+[2026-07-13 09:48:27,219] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported as ready. 3 workers connected.
+[2026-07-13 09:48:27,219] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported as ready. 4 workers connected.
+[2026-07-13 09:48:43,850] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 50 users at 5.00 spawn rate to 4 ready workers
+[2026-07-13 09:48:52,954] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 50} (50 total users)
+[2026-07-13 09:51:51,913] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported that it has stopped
+[2026-07-13 09:51:51,914] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported that it has stopped
+[2026-07-13 09:51:51,914] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported that it has stopped
+[2026-07-13 09:51:51,914] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported that it has stopped
+[2026-07-13 09:51:51,914] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported as ready. 1 workers connected.
+[2026-07-13 09:51:51,914] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported as ready. 2 workers connected.
+[2026-07-13 09:51:51,915] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported as ready. 3 workers connected.
+[2026-07-13 09:51:51,915] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported as ready. 4 workers connected.
+[2026-07-13 09:52:06,028] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 20 users at 2.00 spawn rate to 4 ready workers
+[2026-07-13 09:52:15,133] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 20} (20 total users)
+[2026-07-13 09:56:50,981] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported that it has stopped
+[2026-07-13 09:56:50,982] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported that it has stopped
+[2026-07-13 09:56:50,982] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported that it has stopped
+[2026-07-13 09:56:50,983] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported that it has stopped
+[2026-07-13 09:56:50,983] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported as ready. 1 workers connected.
+[2026-07-13 09:56:50,983] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported as ready. 2 workers connected.
+[2026-07-13 09:56:50,983] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported as ready. 3 workers connected.
+[2026-07-13 09:56:50,984] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported as ready. 4 workers connected.
+[2026-07-13 09:57:09,617] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 10 users at 1.00 spawn rate to 4 ready workers
+[2026-07-13 09:57:18,707] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 10} (10 total users)
+[2026-07-13 10:00:47,966] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported that it has stopped
+[2026-07-13 10:00:47,967] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported that it has stopped
+[2026-07-13 10:00:47,967] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported that it has stopped
+[2026-07-13 10:00:47,967] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported that it has stopped
+[2026-07-13 10:00:47,967] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported as ready. 1 workers connected.
+[2026-07-13 10:00:47,968] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported as ready. 2 workers connected.
+[2026-07-13 10:00:47,968] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported as ready. 3 workers connected.
+[2026-07-13 10:00:47,968] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported as ready. 4 workers connected.
+[2026-07-13 10:01:03,646] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 100 users at 10.00 spawn rate to 4 ready workers
+[2026-07-13 10:01:12,737] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 100} (100 total users)
+[2026-07-13 10:05:02,583] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported that it has stopped
+[2026-07-13 10:05:02,583] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported that it has stopped
+[2026-07-13 10:05:02,583] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported that it has stopped
+[2026-07-13 10:05:02,584] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported that it has stopped
+[2026-07-13 10:05:02,584] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported as ready. 1 workers connected.
+[2026-07-13 10:05:02,584] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported as ready. 2 workers connected.
+[2026-07-13 10:05:02,585] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported as ready. 3 workers connected.
+[2026-07-13 10:05:02,585] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported as ready. 4 workers connected.
+[2026-07-13 10:05:47,701] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 200 users at 10.00 spawn rate to 4 ready workers
+[2026-07-13 10:06:06,829] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 200} (200 total users)
+[2026-07-13 10:09:47,655] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported that it has stopped
+[2026-07-13 10:09:47,656] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported that it has stopped
+[2026-07-13 10:09:47,657] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported that it has stopped
+[2026-07-13 10:09:47,657] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported that it has stopped
+[2026-07-13 10:09:47,657] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1 (index 4) reported as ready. 1 workers connected.
+[2026-07-13 10:09:47,657] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022 (index 7) reported as ready. 2 workers connected.
+[2026-07-13 10:09:47,658] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a (index 5) reported as ready. 3 workers connected.
+[2026-07-13 10:09:47,658] Aniekans-MacBook-Air/INFO/locust.runners: Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4 (index 6) reported as ready. 4 workers connected.
+[2026-07-13 10:10:02,717] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 1000 users at 100.00 spawn rate to 4 ready workers
+[2026-07-13 10:10:11,825] Aniekans-MacBook-Air/INFO/locust.runners: All users spawned: {"APIUser": 1000} (1000 total users)
+[2026-07-13 10:43:49,043] Aniekans-MacBook-Air/INFO/locust.runners: Sending spawn jobs of 1000 users at 100.00 spawn rate to 3 ready workers
+[2026-07-13 10:43:50,047] Aniekans-MacBook-Air/INFO/locust.runners: Spawning is complete and report waittime is expired, but not all reports received from workers: {"APIUser": 750} (750 total users)
+[2026-07-13 10:43:50,048] Aniekans-MacBook-Air/INFO/locust.runners: Worker 'Aniekans-MacBook-Air.local_081ac8362c2949d0bcb44c116c9124b4' (index 6) quit. 0 workers ready.
+[2026-07-13 10:43:50,050] Aniekans-MacBook-Air/INFO/locust.runners: Worker 'Aniekans-MacBook-Air.local_9df130c361e04a21b5875a5ebfdcefb1' (index 4) quit. 0 workers ready.
+[2026-07-13 10:43:50,051] Aniekans-MacBook-Air/INFO/locust.runners: Worker 'Aniekans-MacBook-Air.local_7fa085b8d1464ea5a3fb0cb1c30e450a' (index 5) quit. 0 workers ready.
+[2026-07-13 10:43:50,052] Aniekans-MacBook-Air/INFO/locust.runners: Worker 'Aniekans-MacBook-Air.local_932fdc36e8ef4fed96b693db81d64022' (index 7) quit. 0 workers ready.
+[2026-07-13 10:43:50,052] Aniekans-MacBook-Air/INFO/locust.runners: The last worker quit, stopping test.

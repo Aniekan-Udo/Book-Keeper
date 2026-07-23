@@ -1,0 +1,2 @@
+-- your init SQL here, e.g.:
+-- CREATE EXTENSION IF NOT EXISTS vector;
