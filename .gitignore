@@ -1,0 +1,6 @@
+.env
+.venv
+Implementation.md
+master.log
+worker1.log
+worker2.log
