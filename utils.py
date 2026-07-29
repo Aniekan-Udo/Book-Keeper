@@ -1,6 +1,9 @@
 import structlog
+from datetime import datetime, date
+from sqlalchemy import select
+from db import IdempotencyRecord
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from main import app
 
 structlog.configure(
     processors=[
@@ -9,28 +12,30 @@ structlog.configure(
         structlog.processors.JSONRenderer(),
     ]
 )
-log = structlog.get_logger()
+logger = structlog.get_logger()
 
-import uuid
-from starlette.middleware.base import BaseHTTPMiddleware
+def format_naira(amount: float) -> str:
+    return f"₦{amount:,.2f}"
 
-class RequestIDMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        request_id = str(uuid.uuid4())
-        structlog.contextvars.bind_contextvars(request_id=request_id)
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        return response
-
-app.add_middleware(RequestIDMiddleware)
+def describe_period(start: date | None, end: date | None) -> str:
+    if not start and not end:
+        return "all time"
+    if start == end:
+        return f"on {start.strftime('%B %d, %Y')}"
+    return f"from {start.strftime('%B %d, %Y')} to {end.strftime('%B %d, %Y')}"
 
 
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
-from slowapi import _rate_limit_exceeded_handler
+async def get_cached_response(db: AsyncSession, key: str, user_id: int) -> dict | None:
+    if not key:
+        return None
+    result = await db.execute(select(IdempotencyRecord).where(IdempotencyRecord.key == key))
+    record = result.scalar_one_or_none()
+    if record and record.user_id == user_id:
+        return record.response
+    return None
 
-import os
-limiter = Limiter(key_func=get_remote_address, storage_uri=os.getenv("LIMITER_STORAGE", "memory://"))
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+async def store_response(db: AsyncSession, key: str, user_id: int, response: dict):
+    if not key:
+        return
+    db.add(IdempotencyRecord(key=key, user_id=user_id, response=response))
+    await db.commit()

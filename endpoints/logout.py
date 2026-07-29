@@ -9,12 +9,12 @@ from authentication.auth import revoke_refresh_token, TokenData
 
 router = APIRouter()
 
-from db import get_db
+from db import get_db_session
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 @router.post("/logout")
-async def logout(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+async def logout(request: Request, response: Response, db: AsyncSession = Depends(get_db_session)):
     old_token = request.cookies.get("refresh_token")
     if old_token:
         try:

@@ -9,7 +9,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from authentication.auth import require_step_up
-from db import User, get_db, IdempotencyRecord, Transaction, TransactionStatus
+from db import User, get_db_session, IdempotencyRecord, Transaction, TransactionStatus
 from main import get_current_user
 from utils import limiter
 
@@ -28,7 +28,7 @@ transfer_lock = asyncio.Lock()
 async def transfer(
     request: Request,
     transfer_req: TransferRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
     step_up_sub: str = Depends(require_step_up)
 ):

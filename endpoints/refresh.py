@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from authentication.auth import is_refresh_token_valid, revoke_all_user_tokens, revoke_refresh_token, \
     create_access_token, create_refresh_token, store_refresh_token
 from authentication.settings import settings
-from db import get_db, User
+from db import get_db_session, User
 from aiocache import caches
 import uvicorn
 import asyncio
@@ -24,7 +24,7 @@ class TokenData(BaseModel):
 
 @router.post("/refresh")
 @limiter.limit("10/minute")
-async def refresh(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+async def refresh(request: Request, response: Response, db: AsyncSession = Depends(get_db_session)):
     old_token = request.cookies.get("refresh_token")
     if not old_token:
         raise HTTPException(status_code=401, detail="No refresh token")

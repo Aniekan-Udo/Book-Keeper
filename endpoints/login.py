@@ -9,7 +9,7 @@ from starlette.responses import Response
 from authentication.auth import create_access_token, create_refresh_token, store_refresh_token, verify_password
 from authentication.settings import settings
 
-from db import get_db, User
+from db import get_db_session, User
 
 
 router = APIRouter()
@@ -24,7 +24,7 @@ class Login(BaseModel):
     password: str
 
 @router.post("/login")
-async def login(credentials: Login, response: Response, db: AsyncSession = Depends(get_db)):
+async def login(credentials: Login, response: Response, db: AsyncSession = Depends(get_db_session)):
     result = await db.execute(select(User).where(User.email == credentials.email))
     user = result.scalar_one_or_none()
 

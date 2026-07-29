@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from authentication.auth import is_refresh_token_valid, revoke_all_user_tokens, revoke_refresh_token, \
     create_access_token, create_refresh_token, store_refresh_token
 from authentication.settings import settings
-from db import get_db, User
+from db import get_db_session, User
 from aiocache import caches
 import uvicorn
 import asyncio
@@ -34,7 +34,7 @@ cache = caches.get('default')
 app = FastAPI()
 
 @app.post('/check_balance')
-async def check_balance(user: UserIn, db: AsyncSession = Depends(get_db)):
+async def check_balance(user: UserIn, db: AsyncSession = Depends(get_db_session)):
     key = f'{user.email}:{user.firstname}:{user.lastname}'
     cached_value = await cache.get(key)
     if cached_value:

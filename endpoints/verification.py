@@ -5,7 +5,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from authentication.auth import create_step_up_token
-from db import get_db, User, StepUpVerification
+from db import get_db_session, User, StepUpVerification
 from main import get_current_user
 
 router = APIRouter()
@@ -22,7 +22,7 @@ class BiometricAssertion(BaseModel):
 @router.post("/verify_setup")
 async def verify_setup(
         assertion: BiometricAssertion,
-        db: AsyncSession = Depends(get_db()),
+        db: AsyncSession = Depends(get_db_session),
         current_user: User = Depends(get_current_user)
 ):
     # verify the platform's cryptographic assertion —
