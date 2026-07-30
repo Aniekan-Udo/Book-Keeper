@@ -39,3 +39,11 @@ async def store_response(db: AsyncSession, key: str, user_id: int, response: dic
         return
     db.add(IdempotencyRecord(key=key, user_id=user_id, response=response))
     await db.commit()
+
+
+def is_rate_limit_error(exc: Exception) -> bool:
+    """Detects a 429/rate-limit error across providers by status code or exception class name,
+    without needing to import every provider's SDK-specific exception type."""
+    status_code = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+    exc_type_name = type(exc).__name__
+    return status_code == 429 or exc_type_name in ("RateLimitError", "ResourceExhausted")

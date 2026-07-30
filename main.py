@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tools.router import handle_message
 from tools.formatting import resolve_clarification
 from db import get_db_session
-from llm import llm, router_sys_msg
+from llm import llm
+from tools.prompts import router_sys_msg
 from tools.clean_version import build_tools
 from utils import logger
 from monitoring import tracer
@@ -26,7 +27,15 @@ app = FastAPI(title="AI Book-Keeper")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+from fastapi.middleware.cors import CORSMiddleware
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # for testing; tighten to specific origins before real production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class MessageRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
@@ -52,7 +61,7 @@ async def post_message(request: Request, req: MessageRequest, db: AsyncSession =
     try:
         tools = build_tools(db, req.user_id)
         sys_msg = router_sys_msg()
-        result = await handle_message(req.message, db, sys_msg, llm, tools)
+        result = await handle_message(req.message, db, sys_msg, tools)
         reply = result["messages"][-1].content or "I wasn't able to process that. Could you rephrase or try again?"
         response = MessageResponse(reply=reply)
 

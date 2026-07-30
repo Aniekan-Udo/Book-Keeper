@@ -4,7 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tools.router import handle_message
 from tools.formatting import resolve_clarification  # adjust to wherever this actually lives
 from db import get_db_session
-from llm import llm, router_sys_msg
+from llm import llm
+from tools.prompt import router_sys_msg
 from tools.clean_version import build_tools
 from utils import logger
 from monitoring import tracer

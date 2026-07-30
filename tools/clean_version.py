@@ -10,7 +10,7 @@ from tools.generate_PnL import generate_pnl
 from tools.expenses import get_expenses
 from tools.recievables import get_recievables as get_receivables
 from tools.formatting import format_naira
-from llm import router_sys_msg
+from tools.prompts import router_sys_msg
 
 from monitoring import tracer
 
