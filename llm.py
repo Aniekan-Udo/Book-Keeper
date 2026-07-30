@@ -28,6 +28,9 @@ You have three tools:
 
 Call exactly one tool that matches the user's intent.
 
+When you need to use a tool, call it directly without announcing the tool name or explaining that you're using a tool.
+Never mention internal tool names in your response to the user.
+
 ## Transaction types
 - "sale": the business received (or will receive) money for goods/services it sold to a customer. direction="in".
 - "expense": the business paid money out for goods/services it bought. direction="out".
@@ -67,14 +70,23 @@ import os
 #      timeout=15,
 #  )
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+# from langchain_google_genai import ChatGoogleGenerativeAI
+# llm = ChatGoogleGenerativeAI(
+#        model="gemini-2.5-flash",
+#        api_key=os.getenv("GEMINI_API_KEY"),
+#        max_retries=2,
+#        timeout=15,
+#  )
 
-llm = ChatGoogleGenerativeAI(
-     model="gemini-2.5-flash",
-     api_key=os.getenv("GEMINI_API_KEY"),
-     max_retries=2,
-     timeout=15,
- )
+from langchain_nvidia_ai_endpoints import ChatNVIDIA
+
+llm = ChatNVIDIA(
+    model="meta/llama-3.3-70b-instruct",
+    api_key=os.getenv("NVIDIA_API_KEY"),
+    timeout=60,
+)
+
+
 
 
 class Models(ABC):

@@ -5,7 +5,7 @@ import os
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from tools.router import handle_message
-from tools.formatting import resolve_clarification  # adjust to wherever this actually lives
+from tools.formatting import resolve_clarification
 from db import get_db_session
 from llm import llm, router_sys_msg
 from tools.clean_version import build_tools

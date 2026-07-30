@@ -37,6 +37,7 @@ async def _call_agent(agent, user_message: str) -> dict:
     return await agent.ainvoke({"messages": [{"role": "user", "content": user_message}]})
 
 
+
 async def handle_message(user_message, db, system_prompt, model, tools) -> dict:
     agent = create_react_agent(model=model, tools=tools, prompt=system_prompt)
     try:

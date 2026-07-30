@@ -1,5 +1,5 @@
+from sqlalchemy import select
 from langchain_core.tools import tool
-from langchain.agents import create_agent
 from pydantic import BaseModel, model_validator
 from typing import Optional, Literal
 from datetime import date as date_type
@@ -8,7 +8,8 @@ from db import TransactionORM
 from config import GenerateDate
 from tools.generate_PnL import generate_pnl
 from tools.expenses import get_expenses
-from tools.recievables import get_recievables
+from tools.recievables import get_recievables as get_receivables
+from tools.formatting import format_naira
 from llm import router_sys_msg
 
 from monitoring import tracer
