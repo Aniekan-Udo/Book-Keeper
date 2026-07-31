@@ -203,6 +203,71 @@
 
     .sidebar-section.examples::-webkit-scrollbar { width: 3px; }
     .sidebar-section.examples::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    /* Mobile responsive layout */
+    .mobile-header-toggle {
+      display: none;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .sidebar-body {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    @media (max-width: 768px) {
+      .layout {
+        flex-direction: column;
+        height: 100vh;
+        height: 100dvh;
+      }
+      .sidebar {
+        width: 100%;
+        min-width: 0;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        padding: 14px 16px;
+        gap: 0;
+      }
+      .logo {
+        justify-content: space-between;
+        width: 100%;
+      }
+      .mobile-header-toggle {
+        display: block;
+      }
+      .sidebar-body {
+        display: none;
+        max-height: 50vh;
+        margin-top: 14px;
+        padding-top: 14px;
+        border-top: 1px solid var(--border);
+      }
+      .sidebar-body.open {
+        display: flex;
+      }
+      .messages {
+        padding: 16px 12px;
+      }
+      .input-bar {
+        padding: 12px 12px 16px;
+      }
+      .bubble-row {
+        max-width: 100%;
+      }
+      .bubble {
+        max-width: 88%;
+      }
+    }
   </style>
 </head>
 <body>
@@ -211,47 +276,52 @@
   <!-- Sidebar -->
   <aside class="sidebar">
     <div class="logo">
-      <div class="logo-icon">&#128210;</div>
-      <div>
-        <div class="logo-text">AI Book-Keeper</div>
-        <div class="logo-sub">Test Client</div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div class="logo-icon">&#128210;</div>
+        <div>
+          <div class="logo-text">AI Book-Keeper</div>
+          <div class="logo-sub">Test Client</div>
+        </div>
       </div>
+      <button class="mobile-header-toggle" onclick="toggleSidebarMenu()">☰ Menu</button>
     </div>
 
-    <div class="sidebar-section">
-      <label>API Base URL</label>
-      <input id="api-url" type="text" value="http://localhost:8000" placeholder="http://localhost:8000" />
-    </div>
-
-    <div class="sidebar-section">
-      <label>User ID</label>
-      <input id="user-id" type="number" value="1" min="1" placeholder="e.g. 1" />
-    </div>
-
-    <div class="sidebar-section">
-      <label>Connection</label>
-      <div style="margin-bottom:8px;">
-        <span class="status-dot" id="status-dot"></span>
-        <span id="status-text">Not checked</span>
+    <div class="sidebar-body" id="sidebar-body">
+      <div class="sidebar-section">
+        <label>API Base URL</label>
+        <input id="api-url" type="text" value="http://localhost:8000" placeholder="http://localhost:8000" />
       </div>
-      <button class="chip" onclick="pingServer()">Check connection</button>
-    </div>
 
-    <div class="sidebar-section examples">
-      <div class="example-label">Try these</div>
-      <div class="chip-grid">
-        <button class="chip" onclick="fillPrompt(this)">I sold 20 bags of rice to Ahmed for 150k</button>
-        <button class="chip" onclick="fillPrompt(this)">Paid 45,000 for fuel today</button>
-        <button class="chip" onclick="fillPrompt(this)">I borrowed 200k from Emeka to buy stock</button>
-        <button class="chip" onclick="fillPrompt(this)">James paid me back 80k</button>
-        <button class="chip" onclick="fillPrompt(this)">What's my PnL for this month?</button>
-        <button class="chip" onclick="fillPrompt(this)">Show me my expenses this week</button>
-        <button class="chip" onclick="fillPrompt(this)">Who still owes me money?</button>
-        <button class="chip" onclick="fillPrompt(this)">What did I spend on fuel last month?</button>
+      <div class="sidebar-section">
+        <label>User ID</label>
+        <input id="user-id" type="number" value="1" min="1" placeholder="e.g. 1" />
       </div>
-    </div>
 
-    <button class="clear-btn" onclick="clearChat()">Clear conversation</button>
+      <div class="sidebar-section">
+        <label>Connection</label>
+        <div style="margin-bottom:8px;">
+          <span class="status-dot" id="status-dot"></span>
+          <span id="status-text">Not checked</span>
+        </div>
+        <button class="chip" onclick="pingServer()">Check connection</button>
+      </div>
+
+      <div class="sidebar-section examples">
+        <div class="example-label">Try these</div>
+        <div class="chip-grid">
+          <button class="chip" onclick="fillPrompt(this)">I sold 20 bags of rice to Ahmed for 150k</button>
+          <button class="chip" onclick="fillPrompt(this)">Paid 45,000 for fuel today</button>
+          <button class="chip" onclick="fillPrompt(this)">I borrowed 200k from Emeka to buy stock</button>
+          <button class="chip" onclick="fillPrompt(this)">James paid me back 80k</button>
+          <button class="chip" onclick="fillPrompt(this)">What's my PnL for this month?</button>
+          <button class="chip" onclick="fillPrompt(this)">Show me my expenses this week</button>
+          <button class="chip" onclick="fillPrompt(this)">Who still owes me money?</button>
+          <button class="chip" onclick="fillPrompt(this)">What did I spend on fuel last month?</button>
+        </div>
+      </div>
+
+      <button class="clear-btn" onclick="clearChat()">Clear conversation</button>
+    </div>
   </aside>
 
   <!-- Main -->
@@ -490,6 +560,11 @@
       card.style.opacity = '1';
       card.style.pointerEvents = '';
     }
+  }
+
+  function toggleSidebarMenu() {
+    const body = document.getElementById('sidebar-body');
+    if (body) body.classList.toggle('open');
   }
 
   document.getElementById('msg-input').focus();
