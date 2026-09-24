@@ -1,269 +1,172 @@
-# Auth & Payment Verification Layer — Technical Documentation
+# AI Book-Keeper — Technical Documentation
 
-## Purpose
+Conversational bookkeeping for Nigerian small businesses. Users describe what happened
+in plain English or Pidgin ("Mama Chidi buy 3 crates of egg, 15k, she pay 10k"); the app
+records it, tracks who owes whom, and answers questions about the business.
 
-This document describes the authentication, session management, step-up
-verification, and transfer subsystem for the payment product. It covers
-architecture, token lifecycles, database schema, endpoint contracts,
-security rationale, and known gaps. Intended audience: engineers working
-on or reviewing this codebase.
+See `ROADMAP.md` for where the product is going.
 
 ---
 
-## 1. Architecture Overview
+## 1. Architecture
 
-The system has three layers, each with a distinct responsibility:
+```
+browser (frontend/index.html)
+   │  Bearer access token + httpOnly refresh cookie
+   ▼
+FastAPI (main.py)
+   ├── endpoints/        register, login, refresh, logout
+   ├── /api/v1/message   → tools/router.py: LLM agent (llm.py) with the tools below
+   └── /api/v1/clarify   → fill in a missing amount directly, no LLM
+                                   │
+tools/clean_version.py  agent tools: extract, report, query, undo, correct
+tools/ledger.py         the money rules — recording, debt settlement, undo, corrections
+tools/generate_PnL.py, expenses.py, recievables.py   reports
+                                   │
+Postgres (db.py models, migrations/ via Alembic)
+```
 
-1. **Session layer** — access token (short-lived) + refresh token
-   (longer-lived, DB-backed, rotating). Answers "is this a valid,
-   ongoing session for this user."
-2. **Step-up layer** — a separate, short-lived token issued only after
-   a fresh re-verification (biometric or password). Answers "did this
-   user just prove their identity again, specifically for this
-   sensitive action."
-3. **Transaction layer** — the `/transfer` endpoint and supporting
-   tables (`transactions`, `idempotency_records`) that move money
-   atomically, once both layers above have cleared.
-
-These layers are intentionally decoupled. A valid session does not
-imply step-up verification; step-up verification alone does not imply
-a valid session. Sensitive endpoints require both.
-
----
-
-## 2. Token Types
-
-| Token type   | Lifetime      | Storage (client)         | Storage (server)              | Purpose                              |
-|--------------|---------------|---------------------------|--------------------------------|---------------------------------------|
-| Access token | ~15–30 min    | Memory / Authorization header | None (stateless JWT)      | General API access                    |
-| Refresh token| ~7 days       | `httpOnly` cookie (web) / secure storage (mobile) | `refresh_tokens` table (by `jti`) | Silently renew access tokens; revocable |
-| Step-up token| ~2–5 min      | Memory / request header   | `step_up_verifications` table | Gate on sensitive actions (transfer, etc.) |
-
-All tokens are JWTs signed with `SECRET_KEY` (HS256), carrying a `type`
-claim (`refresh`, `step_up`) so one type cannot be substituted for
-another. Access tokens carry no explicit `type` claim; they're the
-default assumed by `verify_token`.
-
-### Why three separate token types instead of one
-
-Collapsing these into a single token (e.g., just using a long-lived
-access token everywhere) would mean a leaked token grants full
-standing access to sensitive actions indefinitely. Splitting them
-means:
-- A leaked access token is dangerous only for its short window.
-- A leaked refresh token can be revoked without affecting other users
-  or requiring a full credential reset.
-- Step-up tokens exist specifically so "logged in" and "just verified
-  identity for this transaction" are never conflated.
+The LLM only decides *which* tool to call and with what arguments. Every rule about
+money lives in `tools/ledger.py`, is deterministic, and is covered by
+`tools/test/test_ledger.py`. Keep it that way: never let the model compute balances.
 
 ---
 
-## 3. Refresh Token Lifecycle (Rotation + Reuse Detection)
+## 2. The ledger
 
-1. Login issues an access token and a refresh token (with a unique
-   `jti`), and stores the `jti` in `refresh_tokens`.
-2. When the access token expires, the client calls `/refresh` with
-   the refresh token.
-3. `/refresh` validates the token, checks the `jti` is still valid
-   (exists, not revoked, not expired) via `is_refresh_token_valid`.
-4. On success: the old `jti` is revoked (`revoke_refresh_token`), and
-   a **new** access + refresh token pair is issued and stored. This is
-   rotation — every refresh invalidates the token that was just used.
-5. **Reuse detection:** if a refresh token is presented whose `jti` is
-   *not* valid (already rotated, revoked, or unknown), this is treated
-   as a signal of token theft — a legitimate client only ever holds the
-   latest token. All of that user's sessions are revoked
-   (`revoke_all_user_tokens`), forcing a fresh login everywhere.
+### Transactions (`business_transactions`)
 
-This means a stolen-but-unused refresh token is fine (attacker never
-gets a chance to use it before the real user's next refresh rotates it
-out). A stolen-and-used refresh token immediately kills every session
-for that user the moment the real user's client tries to refresh with
-its now-invalidated copy.
-
----
-
-## 4. Step-Up Verification
-
-Sensitive endpoints (`/transfer`) require, in addition to a valid
-session, a step-up token obtained via `/verify-step-up` within the
-last few minutes.
-
-**Current approach:** native platform biometric attestation —
-Apple App Attest (iOS) / Google Play Integrity (Android) — rather than
-custom facial recognition. Rationale:
-
-- The OS verifies the biometric locally in secure hardware; the
-  server never receives or stores raw biometric data or embeddings.
-- Avoids biometric-data compliance obligations (GDPR special category
-  data, Illinois BIPA, etc.) that come with storing face/fingerprint
-  data ourselves.
-- Liveness/spoof detection is handled by Apple/Google's dedicated
-  secure hardware rather than something we'd need to build and
-  continuously harden ourselves.
-
-**Fallback:** password or OTP re-entry, for devices/users without
-biometrics enrolled. (Status: not yet implemented — see Gaps.)
-
-**Status of platform verification:** `verify_platform_assertion` for
-Google Play Integrity can be implemented directly against Google's
-REST API (server-side verdict, low risk). The Apple App Attest
-counterpart requires certificate-chain and nonce verification against
-Apple's attestation format — this should be built from Apple's
-official reference implementation/sample code, not a from-scratch
-implementation, given the consequence of a subtly incorrect
-verification routine. **Not yet implemented** — currently deprioritized
-in favor of Alembic/logging/rate limiting.
-
----
-
-## 5. Database Schema
-
-All models in `db.py`, using SQLAlchemy's `Mapped[...]` declarative
-style, tracked via Alembic migrations (`migrations/versions/`).
-
-- **`user`** — `id`, `firstname`, `lastname`, `email` (unique),
-  `password` (Argon2 hash, `String(255)`), `balance`
-  (`DECIMAL(10,2)`).
-- **`refresh_tokens`** — `id`, `user_id`, `jti` (unique), `expires_at`
-  (`DateTime(timezone=True)`), `revoked` (`Boolean`).
-- **`step_up_verifications`** — `id`, `user_id`, `method`
-  (`"password"` / `"biometric"` / `"otp"`), `expires_at`.
-- **`transactions`** — immutable ledger. `id`, `reference` (public-safe
-  UUID-based ID), `sender_id`, `recipient_id`, `amount`,
-  `sender_balance_after`, `recipient_balance_after`, `status`
-  (`completed` / `failed` / `reversed`), `idempotency_key`,
-  `created_at`. Rows are never edited after creation — a reversal is a
-  *new* row referencing the original, not a mutation.
-- **`idempotency_records`** — `id`, `key` (unique), `user_id`,
-  `response` (JSON — the exact response returned on the original
-  request, replayed verbatim on retry), `created_at`.
-
-All money fields use `DECIMAL`, never `float` — required for correct
-arithmetic on monetary values.
-
----
-
-## 6. Endpoints
-
-| Endpoint | Method | Auth required | Notes |
+| type | direction | what it means | `outstanding` means |
 |---|---|---|---|
-| `/login` | POST | None | Verifies password hash, issues access + refresh token, sets refresh cookie |
-| `/refresh` | POST | Refresh token (cookie) | Rotates refresh token, issues new access token |
-| `/logout` | POST | Refresh token (cookie) | Revokes the current session's refresh token |
-| `/verify-step-up` | POST | Access token | Verifies platform biometric assertion, issues step-up token |
-| `/transfer` | POST | Access token + step-up token | Row-locked balance mutation, ledger entry, idempotent |
-| `/check_balance` | POST | Access token | To be migrated off request-body identity — see Gaps |
-| `/generate_report` | POST | — | Uses Redis distributed lock (different problem class than DB row locking — see §7) |
-| `/health` | GET | None | Liveness check |
+| `sale` | in | sold goods/services | customer still owes the user |
+| `expense` | out | bought goods/services | user still owes the supplier |
+| `loan_given` | out | user lent money | borrower still owes the user |
+| `loan_taken` | in | user borrowed money | user still owes the lender |
+| `debt_repayment` | in / out | settles an earlier debt | — |
+
+Money columns are `Numeric(18,2)`. `amount` is the full agreed amount; `amount_paid` is
+how much of it has been settled (upfront part-payment plus any repayments allocated to
+it); `outstanding = max(amount − amount_paid, 0)`.
+
+Defaults when the user doesn't mention a part-payment: sales and expenses are paid in
+full; loans are fully outstanding.
+
+A transaction with no stated amount is stored with `status = "needs_amount"` and excluded
+from reports until the amount is filled in (via `/api/v1/clarify` or a correction).
+
+### Debt settlement
+
+A `debt_repayment` settles the same party's oldest open entries first (FIFO):
+repayments *in* settle sales and loans given; repayments *out* settle expenses and loans
+taken. Party names match case- and whitespace-insensitively. Each settlement is recorded
+in `repayment_allocations` (repayment → entry → amount) so every balance is auditable and
+reversible. Money that doesn't match an open debt is kept on the repayment and flagged in
+the reply.
+
+### Undo and corrections
+
+- Every message's entries share a `batch_id`; "cancel that" soft-deletes (`is_deleted`)
+  the whole latest batch. Specific entries can be removed by id.
+- Deleting a repayment reverses its allocations. Deleting a debt that had repayments
+  re-applies those repayments to the party's other open debts.
+- Corrections reverse the affected allocations, change the entry, recompute it, and
+  re-apply — so balances stay consistent whatever changed (amount, party, date…).
+
+### Reports
+
+- **P&L** is accrual: a sale counts when it's made. The summary also states how much of
+  those sales is unpaid, so revenue isn't mistaken for cash.
+- **Receivables**: open sales + loans given, grouped by party.
+- **Payables**: open expenses + loans taken, grouped by party.
+- **Expenses**: total and top items.
+
+All reports exclude deleted and `needs_amount` entries.
 
 ---
 
-## 7. Locking Strategy — DB Row Locks vs. Redis Distributed Lock
+## 3. Authentication
 
-Two different locking mechanisms are used deliberately for two
-different problem shapes:
+- `POST /register` — creates the account (email, password, business name, optional
+  Nigerian phone normalized to `+234…`) and logs straight in.
+- `POST /login` — email (case-insensitive) + password.
+- Both return a short-lived **access token** (JWT, default 30 min) in the body and set a
+  **refresh token** (JWT, 7 days, `httpOnly` cookie, stored by `jti` in `refresh_tokens`).
+- `POST /refresh` rotates the refresh token. Presenting an already-rotated token is
+  treated as theft: all the user's sessions are revoked.
+- `POST /logout` revokes the current refresh token and clears the cookie.
 
-- **DB row-level locking (`with_for_update()`, inside `db.begin()`)**
-  — used in `/transfer`. Correctness lives entirely inside one atomic
-  DB transaction (read balance, check, write balance). Postgres's own
-  lock is atomic with the write, auto-releases on crash/rollback, and
-  doesn't require Redis to be available.
-- **Redis distributed lock (`cache.add` as mutex)** — used in
-  `/generate_report`. The protected work is expensive application-level
-  computation with no natural DB transaction to anchor a lock to;
-  Redis coordinates across processes for that case.
+Every bookkeeping endpoint depends on `get_current_user` (`authentication/auth.py`):
+the user is taken from the access token, **never** from the request body. Refresh tokens
+carry `type: "refresh"` and are rejected as access tokens.
 
-**Do not use a Redis lock where a DB transaction already provides
-the guarantee** — it adds a second point of failure without adding
-correctness.
-
-**Lock ordering in `/transfer`:** currently locks sender then
-recipient in request order. This is a known gap — should lock by a
-stable order (e.g., always lower `user.id` first) to prevent deadlocks
-between two transfers in opposite directions happening concurrently.
-**Not yet fixed.**
+Rate limits are per user when a valid token is present and per IP otherwise
+(`utils.user_or_ip_key`) — Nigerian mobile carriers put many users behind one IP.
 
 ---
 
-## 8. Idempotency
+## 4. The LLM
 
-`/transfer` requires an `idempotency_key` from the client. The DB
-(not Redis) is used to store idempotency records, specifically so the
-idempotency record commits atomically with the balance mutation and
-ledger entry in the same transaction — preserving a complete audit
-trail and eliminating the crash-window gap that would exist with a
-separately-written Redis key. Redis-based idempotency remains
-appropriate for lower-stakes, non-monetary endpoints.
+`llm.py` builds the chat model from `LLM_MODEL` (`provider:model`, default
+`google_genai:gemini-2.5-flash`) via LangChain's `init_chat_model`, so switching provider
+is a config change. `tools/router.py` runs the agent with a circuit breaker: after 3
+consecutive failures it fails fast for 2 minutes instead of making every user wait on
+timeouts. Provider rate limits surface as a 503 with a "try again shortly" message.
 
----
+The system prompt (`tools/prompts.py`) holds the disambiguation examples — English and
+Pidgin — that decide sale vs. expense vs. repayment. When a real message is recorded
+wrong, add it to `tools/evals.py` and fix the prompt until it passes:
 
-## 9. Environment & Secrets
-
-- Config loaded via `pydantic-settings` (`authentication/settings.py`),
-  reading from `.env`, resolved relative to the settings file's own
-  location (not the process's working directory).
-- `SECRET_KEY` is a `SecretStr` — masked in logs/reprs; access via
-  `.get_secret_value()` only at the point of use (JWT signing).
-- `.env` must never be committed. Local dev and production must use
-  different `SECRET_KEY` values. Production should source secrets from
-  a secrets manager, not a flat file.
-- `extra="ignore"` is set on `Settings` since `.env` is shared with
-  non-auth config (Postgres credentials); consider splitting into
-  per-concern settings classes (`AuthSettings`, `DBSettings`) as the
-  config surface grows.
-
----
-
-## 10. Migrations
-
-Schema is managed via Alembic (`migrations/`), using an async-aware
-`env.py` (standard sync template doesn't work with the `asyncpg`
-engine — requires `async_engine_from_config` +
-`connection.run_sync(...)`, see `migrations/env.py`).
-
-Standard flow for a schema change:
 ```bash
-alembic revision --autogenerate -m "description of change"
-# review the generated file in migrations/versions/ before applying —
-# autogenerate is not infallible, especially around enums
-alembic upgrade head
+uv run python -m tools.evals          # live model calls, not part of pytest
 ```
 
 ---
 
-## 11. Known Gaps / Not Yet Implemented
+## 5. Idempotency
 
-- `verify_platform_assertion` (Apple App Attest / Google Play
-  Integrity) — Play Integrity is low-risk to implement directly;
-  App Attest should be built from Apple's reference implementation.
-- Step-up fallback path (password/OTP) when biometrics unavailable.
-- Consistent lock ordering in `/transfer` (currently request-order,
-  should be ID-order) to prevent deadlocks.
-- Rate limiting (planned: `slowapi`, Redis-backed, per-IP on
-  `/login`/`/refresh`, per-user on `/transfer`).
-- Structured logging (planned: `structlog`, JSON output, request-ID
-  correlation, PII/secret redaction) — currently uses ad hoc `print()`.
-- `/check_balance` and other early endpoints still need migrating to
-  use `get_current_user` instead of accepting identity fields in the
-  request body.
-- Full test suite (unit tests for token functions exist in progress;
-  integration tests for `/transfer`, `/refresh` reuse detection, and
-  concurrent-transfer locking behavior not yet written).
-- `GET /transactions` — user-facing transaction history endpoint.
-- KYC / legal identity verification — out of scope for the current
-  App Attest / Play Integrity work, which only confirms device/
-  biometric integrity, not legal identity. Would require a separate
-  third-party KYC integration (e.g., Smile ID, Persona) if/when needed
-  for compliance.
+`/api/v1/message` accepts an `Idempotency-Key` header. The response is stored in
+`idempotency_records` and replayed on retry, so a flaky connection resending a message
+doesn't record a sale twice.
 
 ---
 
-## 12. Security Review Notes
+## 6. Running it
 
-Given this system handles real transfers, the following should get
-explicit review before wider rollout, beyond normal code review:
-- `/transfer` locking and idempotency logic.
-- Whichever platform-assertion verification code is eventually
-  written (especially App Attest's certificate/nonce validation).
-- Refresh token rotation and reuse-detection logic.
+```bash
+cp .env.example .env         # fill in SECRET_KEY, GOOGLE_API_KEY, Postgres credentials
+docker compose up --build    # runs migrate.py, then serves on :8001
+```
+
+Without Docker: set `POSTGRES_URI`, then `uv run python migrate.py` and
+`uv run uvicorn main:app --reload`.
+
+### Migrations
+
+`migrate.py` is safe to run on every deploy. It creates a fresh database from the
+models, upgrades a database built by the old `create_tables.py` (stamping the baseline
+first), or applies pending Alembic migrations. For schema changes:
+
+```bash
+uv run alembic revision --autogenerate -m "describe the change"
+# review the generated file — autogenerate misses things, especially enums
+uv run python migrate.py
+```
+
+The old payment tables (`transactions`, `step_up_verifications`) are no longer used but
+are not dropped automatically; drop them by hand once you're sure.
+
+### Tests
+
+```bash
+uv run pytest                                         # SQLite, no services needed
+TEST_DATABASE_URL=postgresql+asyncpg://... uv run pytest   # against Postgres
+```
+
+---
+
+## 7. Production checklist
+
+- `SECRET_KEY` from a secrets manager, unique per environment.
+- `COOKIE_SECURE=true` (HTTPS).
+- `ALLOWED_ORIGINS` only if the web client is on another origin.
+- A paid LLM quota sized for traffic (the circuit breaker is not a substitute).

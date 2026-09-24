@@ -30,15 +30,18 @@ A bookkeeper that gets the debt numbers wrong is worse than a notebook.
 
 ## Phase 2 — Safe to put in front of real users
 
-- [ ] Wire JWT auth into `/api/v1/message` and `/api/v1/clarify`
-      (`user_id` from the token, never the request body)
-- [ ] Registration endpoint that works (current one is broken)
-- [ ] Remove payment-system leftovers (transfer, balance, step-up, unused
-      `Business`/`Sale`/`Expense` models, `endpoints/message.py`,
-      `tools/conversation.py`, dead code in `llm.py`)
-- [ ] One LLM client path; drop multi-key rotation, use a paid tier/quota
-- [ ] Rewrite `Documentation.MD` for the bookkeeper
-- [ ] Restrict CORS origins
+- [x] JWT auth on every bookkeeping endpoint (user from the token, never the body)
+- [x] Working registration (business name, Nigerian phone normalized to +234), and
+      login/refresh/logout actually mounted in the app
+- [x] Web client: sign up / log in, silent token refresh, log out
+- [x] Payment-system leftovers removed (transfer, balance, step-up, unused models,
+      dead scripts and endpoints)
+- [x] One LLM path chosen by config (`LLM_MODEL`); no key rotation; circuit breaker
+      that actually trips on async failures
+- [x] Rate limits per user (not per carrier IP)
+- [x] CORS off unless `ALLOWED_ORIGINS` is set
+- [x] `migrate.py` runs on deploy; Alembic actually installed and working
+- [x] Docs rewritten; live eval script (`tools/evals.py`) with English + Pidgin cases
 
 ## Phase 3 — The differentiators
 

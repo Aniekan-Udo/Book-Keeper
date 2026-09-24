@@ -1,21 +1,21 @@
-from sqlalchemy import select
-from db import get_db
-from sqlalchemy import delete
-from sqlalchemy.ext.asyncio import AsyncSession
-from jose import JWTError, ExpiredSignatureError, jwt
+import uuid
 from datetime import timedelta, datetime, timezone
+
+from fastapi import HTTPException, Response, status, Depends
 from fastapi.security import OAuth2PasswordBearer
-from fastapi import HTTPException, status, Depends
+from jose import JWTError, ExpiredSignatureError, jwt
 from pwdlib import PasswordHash
 from pydantic import BaseModel
-
+from sqlalchemy import select, delete
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from authentication.settings import settings
-from db import RefreshToken
+from db import RefreshToken, User, get_db_session
 
 password_hash = PasswordHash.recommended()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-oauth2_scheme_step_up = OAuth2PasswordBearer(tokenUrl="token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+REFRESH_COOKIE = "refresh_token"
 
 def hash_password(password):
     """ Hash a plain password """
@@ -34,7 +34,6 @@ def create_access_token(data: dict, expires_delta : timedelta | None = None):
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes= settings.ACCESS_TOKEN_EXPIRE_MINUTES)
 
-    import uuid
     to_encode.update({"exp": expire, "jti": str(uuid.uuid4())})
 
     encode_jwt =jwt.encode(to_encode, settings.SECRET_KEY.get_secret_value(), algorithm=settings.ALGORITHM)
@@ -43,9 +42,8 @@ def create_access_token(data: dict, expires_delta : timedelta | None = None):
 
 def create_refresh_token(data: dict, expires_delta : timedelta | None = None):
     """ Create a refresh token """
-    import uuid
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(days=7))
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS))
     jti = str(uuid.uuid4())
     to_encode.update({"exp": expire, "type": "refresh", "jti": jti})
     token = jwt.encode(to_encode, settings.SECRET_KEY.get_secret_value(), algorithm=settings.ALGORITHM)
@@ -54,7 +52,7 @@ def create_refresh_token(data: dict, expires_delta : timedelta | None = None):
 def verify_token(token: str):
     try:
         payload = jwt.decode(token, settings.SECRET_KEY.get_secret_value(), algorithms=[settings.ALGORITHM])
-        if payload.get("type") in ("refresh", "step_up"):
+        if payload.get("type") is not None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
         user_id: str = payload.get("sub")
         if user_id is None:
@@ -105,7 +103,10 @@ async def is_refresh_token_valid(db: AsyncSession, data: TokenData):
         return False
     if token_row.revoked:
         return False
-    if token_row.expires_at < datetime.now(timezone.utc):
+    expires_at = token_row.expires_at
+    if expires_at.tzinfo is None:  # SQLite drops tzinfo; stored values are always UTC
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < datetime.now(timezone.utc):
         return False
 
     return True
@@ -134,20 +135,34 @@ async def revoke_all_user_tokens(db: AsyncSession, data: TokenData):
     await db.commit()
 
 
-def create_step_up_token(data: dict, expires_delta: timedelta | None = None):
-    to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=3))
-    to_encode.update({"exp": expire, "type": "step_up"})
-    return jwt.encode(to_encode, settings.SECRET_KEY.get_secret_value(), algorithm=settings.ALGORITHM)
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db_session),
+) -> User:
+    """The authenticated user for this request. Identity only ever comes from the
+    access token — never from a user_id in the request body."""
+    user_id = verify_token(token)
+    user = await db.get(User, int(user_id)) if str(user_id).isdigit() else None
+    if user is None:
+        # token outlived the account
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials",
+                            headers={"WWW-Authenticate": "Bearer"})
+    return user
 
 
-async def require_step_up(token: str = Depends(oauth2_scheme_step_up)):  # separate header/scheme, or parse from a custom header
-    try:
-        payload = jwt.decode(token, settings.SECRET_KEY.get_secret_value(), algorithms=[settings.ALGORITHM])
-    except (ExpiredSignatureError, JWTError):
-        raise HTTPException(status_code=401, detail="Step-up verification required")
+async def issue_session(db: AsyncSession, response: Response, user_id: int) -> dict:
+    """Create an access token + a stored, rotating refresh token (set as an httpOnly cookie)."""
+    access_token = create_access_token({"sub": str(user_id)})
+    refresh_token, jti = create_refresh_token({"sub": str(user_id)})
+    lifetime = timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    await store_refresh_token(db, TokenData(user_id=str(user_id), jti=jti, expires_delta=lifetime))
+    response.set_cookie(
+        key=REFRESH_COOKIE, value=refresh_token, httponly=True,
+        secure=settings.COOKIE_SECURE, samesite="lax", max_age=int(lifetime.total_seconds()), path="/",
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
 
-    if payload.get("type") != "step_up":
-        raise HTTPException(status_code=401, detail="Invalid verification token")
 
-    return payload["sub"]
+def clear_session_cookie(response: Response) -> None:
+    # path must match the one used in issue_session or the browser keeps the cookie
+    response.delete_cookie(key=REFRESH_COOKIE, path="/")

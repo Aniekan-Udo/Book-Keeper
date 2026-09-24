@@ -12,6 +12,15 @@ class Settings(BaseSettings):
     )
     SECRET_KEY: SecretStr
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     ALGORITHM: str = 'HS256'
+    # must be True in production (HTTPS); False only so local http:// dev works
+    COOKIE_SECURE: bool = False
+    # comma-separated origins allowed to call the API cross-origin; empty = same-origin only
+    ALLOWED_ORIGINS: str = ""
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
 
 settings = Settings()

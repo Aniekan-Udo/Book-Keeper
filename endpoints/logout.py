@@ -1,21 +1,17 @@
-from fastapi import APIRouter, Request, Response, HTTPException, status
-
+from fastapi import APIRouter, Depends, Request, Response
 from jose import jwt, ExpiredSignatureError, JWTError
-from starlette.responses import Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from authentication.auth import REFRESH_COOKIE, TokenData, clear_session_cookie, revoke_refresh_token
 from authentication.settings import settings
-from authentication.auth import revoke_refresh_token, TokenData
+from db import get_db_session
 
 
 router = APIRouter()
 
-from db import get_db_session
-from fastapi import Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-
 @router.post("/logout")
 async def logout(request: Request, response: Response, db: AsyncSession = Depends(get_db_session)):
-    old_token = request.cookies.get("refresh_token")
+    old_token = request.cookies.get(REFRESH_COOKIE)
     if old_token:
         try:
             payload = jwt.decode(old_token, settings.SECRET_KEY.get_secret_value(), algorithms=[settings.ALGORITHM])
@@ -24,5 +20,5 @@ async def logout(request: Request, response: Response, db: AsyncSession = Depend
                 await revoke_refresh_token(db, TokenData(user_id=user_id, jti=jti))
         except (ExpiredSignatureError, JWTError):
             pass
-    response.delete_cookie(key="refresh_token", path="/refresh")
+    clear_session_cookie(response)
     return {"message": "Logged out"}

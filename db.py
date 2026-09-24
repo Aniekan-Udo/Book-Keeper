@@ -1,12 +1,11 @@
 import os
-import enum
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy import MetaData, String, Date, Integer, Text, Float, ForeignKey, DECIMAL, DateTime, Boolean, JSON, Numeric, Enum as SQLEnum
+from sqlalchemy import MetaData, String, Date, Integer, Text, Float, ForeignKey, DateTime, Boolean, JSON, Numeric, Enum as SQLEnum
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -36,12 +35,17 @@ class User(Model):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     firstname: Mapped[str] = mapped_column(String(50), nullable=False)
     lastname: Mapped[str] = mapped_column(String(50), nullable=False)
-    email: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(254), unique=True, nullable=False)
     password: Mapped[str] = mapped_column(String(255), nullable=False)
-    balance: Mapped[float] = mapped_column(DECIMAL(10, 2), nullable=False, default=0.0)
+    business_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # E.164, e.g. +2348012345678 — how the WhatsApp channel will identify the user
+    phone: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
 
     def __repr__(self):
-        return f"User(id={self.id}, first_name={self.firstname}, last_name={self.lastname}, email={self.email}, balance={self.balance})"
+        return f"User(id={self.id}, email={self.email}, business_name={self.business_name})"
 
 
 class RefreshToken(Model):
@@ -53,14 +57,6 @@ class RefreshToken(Model):
     revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
-class StepUpVerification(Model):
-    __tablename__ = "step_up_verifications"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    method: Mapped[str] = mapped_column(String(20), nullable=False)  # "password", "biometric", "otp"
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
 class IdempotencyRecord(Model):
     __tablename__ = "idempotency_records"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -69,34 +65,6 @@ class IdempotencyRecord(Model):
     response: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
-
-class Business(Model):
-    __tablename__ = "businesses"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
-    industry: Mapped[str] = mapped_column(String(50), nullable=True)
-    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="NGN")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=...)
-
-
-class TransactionStatus(str, enum.Enum):
-    completed = "completed"
-    failed = "failed"
-    reversed = "reversed"
-
-
-class Transaction(Model):
-    __tablename__ = "transactions"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    reference: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
-    sender_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    recipient_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    amount: Mapped[float] = mapped_column(DECIMAL(18, 2), nullable=False)
-    sender_balance_after: Mapped[float] = mapped_column(DECIMAL(18, 2), nullable=False)
-    recipient_balance_after: Mapped[float] = mapped_column(DECIMAL(18, 2), nullable=False)
-    status: Mapped[TransactionStatus] = mapped_column(SQLEnum(TransactionStatus), nullable=False, default=TransactionStatus.completed)
-    idempotency_key: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
 class TransactionORM(Model):
     __tablename__ = "business_transactions"
@@ -145,34 +113,6 @@ class RepaymentAllocation(Model):
     repayment_id: Mapped[int] = mapped_column(Integer, ForeignKey("business_transactions.id"), nullable=False, index=True)
     applied_to_id: Mapped[int] = mapped_column(Integer, ForeignKey("business_transactions.id"), nullable=False, index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
-
-
-class Expense(Model):
-    __tablename__ = "expenses"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    org_id: Mapped[int] = mapped_column(Integer, ForeignKey("businesses.id"), nullable=False)
-    amount: Mapped[DECIMAL] = mapped_column(DECIMAL(18, 2), nullable=False)
-    description: Mapped[str] = mapped_column(String(255), nullable=False)
-    vendor: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    payment_method: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    date: Mapped[date] = mapped_column(Date, nullable=False)
-    created_by: Mapped[int] = mapped_column(Integer, ForeignKey("user.id"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=...)
-    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
-
-
-class Sale(Model):
-    __tablename__ = "sales"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    org_id: Mapped[int] = mapped_column(Integer, ForeignKey("businesses.id"), nullable=False)
-    amount: Mapped[DECIMAL] = mapped_column(DECIMAL(18, 2), nullable=False)
-    description: Mapped[str] = mapped_column(String(255), nullable=False)
-    customer: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    payment_method: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "cash", "transfer", "pos"
-    date: Mapped[date] = mapped_column(Date, nullable=False)
-    created_by: Mapped[int] = mapped_column(Integer, ForeignKey("user.id"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=...)
-    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)  # soft delete
 
 
 async def init_models():

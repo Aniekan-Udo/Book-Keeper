@@ -1,8 +1,13 @@
 import structlog
-from datetime import datetime, date
+from fastapi import Request
+from jose import JWTError, jwt
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy import select
-from db import IdempotencyRecord
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from authentication.settings import settings
+from db import IdempotencyRecord
 
 
 structlog.configure(
@@ -14,15 +19,23 @@ structlog.configure(
 )
 logger = structlog.get_logger()
 
-def format_naira(amount: float) -> str:
-    return f"₦{amount:,.2f}"
 
-def describe_period(start: date | None, end: date | None) -> str:
-    if not start and not end:
-        return "all time"
-    if start == end:
-        return f"on {start.strftime('%B %d, %Y')}"
-    return f"from {start.strftime('%B %d, %Y')} to {end.strftime('%B %d, %Y')}"
+def user_or_ip_key(request: Request) -> str:
+    """Rate-limit per user when the request carries a valid access token, else per IP.
+    Nigerian mobile networks put many subscribers behind one carrier IP (CGNAT), so
+    IP-only limits would throttle unrelated users together."""
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        try:
+            payload = jwt.decode(auth[7:], settings.SECRET_KEY.get_secret_value(), algorithms=[settings.ALGORITHM])
+            if payload.get("sub") and payload.get("type") is None:
+                return f"user:{payload['sub']}"
+        except JWTError:
+            pass
+    return get_remote_address(request)
+
+
+limiter = Limiter(key_func=user_or_ip_key)
 
 
 async def get_cached_response(db: AsyncSession, key: str, user_id: int) -> dict | None:

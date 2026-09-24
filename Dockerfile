@@ -14,4 +14,5 @@ COPY . .
 
 EXPOSE 8001
 
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
+# bring the schema up to date, then serve
+CMD ["sh", "-c", "uv run python migrate.py && uv run uvicorn main:app --host 0.0.0.0 --port 8001"]

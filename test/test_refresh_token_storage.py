@@ -80,18 +80,18 @@ async def test_revoke_all_user_tokens_kills_every_session(db_session, test_user)
 
 
 @pytest.mark.asyncio
-async def test_revoke_all_user_tokens_does_not_affect_other_users(db_session, test_user, test_recipient):
+async def test_revoke_all_user_tokens_does_not_affect_other_users(db_session, test_user, other_user):
     await store_refresh_token(db_session,
         TokenData(user_id=str(test_user.id), jti="user-a-session", expires_delta=timedelta(days=7))
     )
     await store_refresh_token(db_session,
-        TokenData(user_id=str(test_recipient.id), jti="user-b-session", expires_delta=timedelta(days=7))
+        TokenData(user_id=str(other_user.id), jti="user-b-session", expires_delta=timedelta(days=7))
     )
 
     await revoke_all_user_tokens(db_session, TokenData(user_id=str(test_user.id)))
 
     assert await is_refresh_token_valid(db_session, TokenData(user_id=str(test_user.id), jti="user-a-session")) is False
-    assert await is_refresh_token_valid(db_session, TokenData(user_id=str(test_recipient.id), jti="user-b-session")) is True
+    assert await is_refresh_token_valid(db_session, TokenData(user_id=str(other_user.id), jti="user-b-session")) is True
 
 
 @pytest.mark.asyncio

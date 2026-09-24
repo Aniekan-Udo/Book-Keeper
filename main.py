@@ -1,75 +1,80 @@
-from fastapi import FastAPI, Header, Depends, HTTPException
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 import os
-from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
-from tools.router import handle_message
-from tools.ledger import LedgerError, resolve_clarification
-from db import get_db_session
-from tools.prompts import router_sys_msg
-from tools.clean_version import build_tools
-from utils import logger
-from monitoring import tracer
-from tools.router import LLMUnavailable
 
-from fastapi import FastAPI, Depends, Request
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
+from fastapi import FastAPI, Header, Depends, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from utils import get_cached_response, store_response
+from authentication.auth import get_current_user
+from authentication.settings import settings
+from db import User, get_db_session
+from endpoints import login, logout, refresh, registration
+from tools.clean_version import build_tools
+from tools.ledger import LedgerError, resolve_clarification
+from tools.prompts import router_sys_msg
+from tools.router import LLMUnavailable, handle_message
+from utils import get_cached_response, limiter, logger, store_response
 
-limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="AI Book-Keeper")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-from fastapi.middleware.cors import CORSMiddleware
+if settings.allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.allowed_origins,
+        allow_credentials=True,  # the refresh token travels as a cookie
+        allow_methods=["GET", "POST"],
+        allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+    )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # for testing; tighten to specific origins before real production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+for module in (registration, login, refresh, logout):
+    app.include_router(module.router)
+
 
 class MessageRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
-    user_id: int
 
 class MessageResponse(BaseModel):
     reply: str
     clarifications: list[dict] = []
 
 class ResolveClarificationRequest(BaseModel):
-    # TODO(phase 2): take user_id from the auth token instead of the request body
-    user_id: int
     transaction_id: int
     amount: float = Field(..., gt=0)
 
 
+@app.get("/api/v1/me")
+async def me(user: User = Depends(get_current_user)):
+    return {"firstname": user.firstname, "lastname": user.lastname, "email": user.email,
+            "business_name": user.business_name, "phone": user.phone}
+
+
 @app.post("/api/v1/message", response_model=MessageResponse)
 @limiter.limit("10/minute")
-async def post_message(request: Request, req: MessageRequest, db: AsyncSession = Depends(get_db_session),
-                       idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),):
+async def post_message(request: Request, req: MessageRequest,
+                       db: AsyncSession = Depends(get_db_session),
+                       user: User = Depends(get_current_user),
+                       idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=50)):
+    user_id = user.id  # read now: the session commits below and expires ORM attributes
     if idempotency_key:
-        cached = await get_cached_response(db, idempotency_key, req.user_id)
+        cached = await get_cached_response(db, idempotency_key, user_id)
         if cached:
             return MessageResponse(**cached)
 
     try:
         clarifications: list[dict] = []
-        tools = build_tools(db, req.user_id, clarifications)
-        sys_msg = router_sys_msg()
-        result = await handle_message(req.message, db, sys_msg, tools)
-        reply = result["messages"][-1].content or "I wasn't able to process that. Could you rephrase or try again?"
+        tools = build_tools(db, user_id, clarifications)
+        result = await handle_message(req.message, router_sys_msg(), tools)
+        reply = result["messages"][-1].text or "I wasn't able to process that. Could you rephrase or try again?"
         response = MessageResponse(reply=reply, clarifications=clarifications)
 
         if idempotency_key:
-            await store_response(db, idempotency_key, req.user_id, response.model_dump())
+            await store_response(db, idempotency_key, user_id, response.model_dump())
 
         return response
     except LLMUnavailable as e:
@@ -80,9 +85,11 @@ async def post_message(request: Request, req: MessageRequest, db: AsyncSession =
 
 
 @app.post("/api/v1/clarify", response_model=MessageResponse)
-async def post_clarify(req: ResolveClarificationRequest, db: AsyncSession = Depends(get_db_session)):
+async def post_clarify(req: ResolveClarificationRequest,
+                       db: AsyncSession = Depends(get_db_session),
+                       user: User = Depends(get_current_user)):
     try:
-        result = await resolve_clarification(db, req.user_id, req.transaction_id, req.amount)
+        result = await resolve_clarification(db, user.id, req.transaction_id, req.amount)
         txn = result["updated"]
         reply = f"Got it — amount for {txn['item'] or txn['type'].replace('_', ' ')} set to ₦{txn['amount']:,.2f}."
         if result["notes"]:
@@ -95,8 +102,7 @@ async def post_clarify(req: ResolveClarificationRequest, db: AsyncSession = Depe
         raise HTTPException(status_code=503, detail="Something went wrong processing your message. Please try again.")
 
 
-# Serve the test client frontend
-# Mount at /static so API routes take priority, then serve index at /
+# Serve the web client. Mounted at /static so API routes take priority, index served at /
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "frontend")), name="static")
 
 @app.get("/", include_in_schema=False)

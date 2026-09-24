@@ -4,3 +4,7 @@ Implementation.md
 master.log
 worker1.log
 worker2.log
+__pycache__/
+*.pyc
+*.log
+.pytest_cache/

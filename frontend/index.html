@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Book-Keeper — Test Client</title>
+  <title>AI Book-Keeper</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
@@ -268,9 +268,86 @@
         max-width: 88%;
       }
     }
+
+    /* Auth screen */
+    .auth-overlay {
+      position: fixed; inset: 0; z-index: 50;
+      background: var(--bg);
+      display: flex; align-items: center; justify-content: center;
+      padding: 16px; overflow-y: auto;
+    }
+    .auth-overlay[hidden] { display: none; }
+    .auth-card {
+      width: 100%; max-width: 380px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+      padding: 24px; display: flex; flex-direction: column; gap: 16px;
+    }
+    .auth-tabs { display: flex; gap: 6px; background: var(--surface2); padding: 4px; border-radius: 10px; }
+    .auth-tab {
+      flex: 1; padding: 8px; border: none; border-radius: 8px; cursor: pointer;
+      background: transparent; color: var(--text-muted); font: 600 13px 'Inter', sans-serif;
+    }
+    .auth-tab.active { background: var(--border); color: var(--text); }
+    .auth-form { display: flex; flex-direction: column; gap: 10px; }
+    .auth-form[hidden] { display: none; }
+    .auth-form .row { display: flex; gap: 8px; }
+    .auth-form .row > * { flex: 1; min-width: 0; }
+    .auth-form label { font-size: 11px; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 4px; }
+    .auth-form input {
+      width: 100%; padding: 10px 12px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 14px; font-family: inherit; outline: none;
+    }
+    .auth-form input:focus { border-color: var(--accent); }
+    .auth-submit {
+      margin-top: 4px; padding: 11px; border: none; border-radius: 8px; cursor: pointer;
+      background: var(--accent); color: #000; font: 600 14px 'Inter', sans-serif;
+    }
+    .auth-submit:disabled { opacity: .6; cursor: default; }
+    .auth-error { font-size: 13px; color: var(--red); min-height: 1em; }
+    .account-name { font-size: 14px; font-weight: 600; }
+    .account-email { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; word-break: break-all; }
   </style>
 </head>
 <body>
+<div class="auth-overlay" id="auth-overlay" hidden>
+  <div class="auth-card">
+    <div class="logo">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div class="logo-icon">&#128210;</div>
+        <div>
+          <div class="logo-text">AI Book-Keeper</div>
+          <div class="logo-sub">Your books, in your own words</div>
+        </div>
+      </div>
+    </div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tab-login" onclick="showAuthTab('login')">Log in</button>
+      <button class="auth-tab" id="tab-register" onclick="showAuthTab('register')">Sign up</button>
+    </div>
+
+    <form class="auth-form" id="login-form" onsubmit="submitLogin(event)">
+      <div><label for="login-email">Email</label><input id="login-email" type="email" autocomplete="email" required /></div>
+      <div><label for="login-password">Password</label><input id="login-password" type="password" autocomplete="current-password" required /></div>
+      <button class="auth-submit" type="submit">Log in</button>
+    </form>
+
+    <form class="auth-form" id="register-form" onsubmit="submitRegister(event)" hidden>
+      <div class="row">
+        <div><label for="reg-firstname">First name</label><input id="reg-firstname" autocomplete="given-name" required /></div>
+        <div><label for="reg-lastname">Last name</label><input id="reg-lastname" autocomplete="family-name" required /></div>
+      </div>
+      <div><label for="reg-business">Business name</label><input id="reg-business" autocomplete="organization" required /></div>
+      <div><label for="reg-phone">Phone (optional)</label><input id="reg-phone" type="tel" autocomplete="tel" placeholder="0803 123 4567" /></div>
+      <div><label for="reg-email">Email</label><input id="reg-email" type="email" autocomplete="email" required /></div>
+      <div><label for="reg-password">Password (8+ characters)</label><input id="reg-password" type="password" autocomplete="new-password" minlength="8" required /></div>
+      <button class="auth-submit" type="submit">Create account</button>
+    </form>
+
+    <div class="auth-error" id="auth-error" role="alert"></div>
+  </div>
+</div>
+
 <div class="layout">
 
   <!-- Sidebar -->
@@ -280,7 +357,7 @@
         <div class="logo-icon">&#128210;</div>
         <div>
           <div class="logo-text">AI Book-Keeper</div>
-          <div class="logo-sub">Test Client</div>
+          <div class="logo-sub" id="business-name">Your books, in your own words</div>
         </div>
       </div>
       <button class="mobile-header-toggle" onclick="toggleSidebarMenu()">☰ Menu</button>
@@ -293,8 +370,10 @@
       </div>
 
       <div class="sidebar-section">
-        <label>User ID</label>
-        <input id="user-id" type="number" value="1" min="1" placeholder="e.g. 1" />
+        <label>Account</label>
+        <div class="account-name" id="account-name"></div>
+        <div class="account-email" id="account-email"></div>
+        <button class="chip" onclick="logout()">Log out</button>
       </div>
 
       <div class="sidebar-section">
@@ -309,14 +388,16 @@
       <div class="sidebar-section examples">
         <div class="example-label">Try these</div>
         <div class="chip-grid">
-          <button class="chip" onclick="fillPrompt(this)">I sold 20 bags of rice to Ahmed for 150k</button>
+          <button class="chip" onclick="fillPrompt(this)">I sold 20 bags of rice to Ahmed for 150k, he paid 100k</button>
+          <button class="chip" onclick="fillPrompt(this)">Mama Chidi buy 3 crates of egg, 15k, she go pay Friday</button>
+          <button class="chip" onclick="fillPrompt(this)">Ahmed don pay the 50k balance</button>
           <button class="chip" onclick="fillPrompt(this)">Paid 45,000 for fuel today</button>
           <button class="chip" onclick="fillPrompt(this)">I borrowed 200k from Emeka to buy stock</button>
-          <button class="chip" onclick="fillPrompt(this)">James paid me back 80k</button>
-          <button class="chip" onclick="fillPrompt(this)">What's my PnL for this month?</button>
-          <button class="chip" onclick="fillPrompt(this)">Show me my expenses this week</button>
           <button class="chip" onclick="fillPrompt(this)">Who still owes me money?</button>
-          <button class="chip" onclick="fillPrompt(this)">What did I spend on fuel last month?</button>
+          <button class="chip" onclick="fillPrompt(this)">Who I owe?</button>
+          <button class="chip" onclick="fillPrompt(this)">How my business dey this month?</button>
+          <button class="chip" onclick="fillPrompt(this)">Sorry, the fuel was 40k not 45k</button>
+          <button class="chip" onclick="fillPrompt(this)">Cancel that</button>
         </div>
       </div>
 
@@ -329,8 +410,8 @@
     <div class="messages" id="messages">
       <div class="empty-state" id="empty-state">
         <div class="empty-icon">&#128210;</div>
-        <div class="empty-title">Ready to test</div>
-        <div class="empty-sub">Send a message to the AI bookkeeper. Try logging a sale, recording an expense, or asking for a P&amp;L report.</div>
+        <div class="empty-title">Wetin happen for shop today?</div>
+        <div class="empty-sub">Tell me what you sold, bought, borrowed or collected — in English or Pidgin. Ask who owes you, or how the business is doing.</div>
       </div>
     </div>
 
@@ -346,7 +427,7 @@
           </svg>
         </button>
       </div>
-      <div class="hint">Enter to send &nbsp;&middot;&nbsp; Shift+Enter for new line &nbsp;&middot;&nbsp; No login required for testing</div>
+      <div class="hint">Enter to send &nbsp;&middot;&nbsp; Shift+Enter for new line </div>
     </div>
   </div>
 
@@ -354,7 +435,116 @@
 
 <script>
   function getApiUrl() { return document.getElementById('api-url').value.replace(/\/$/, ''); }
-  function getUserId() { return parseInt(document.getElementById('user-id').value, 10) || 1; }
+  // Access token lives in memory only; the refresh token is an httpOnly cookie the page can't read.
+  let accessToken = null;
+
+  async function refreshSession() {
+    try {
+      const res = await fetch(getApiUrl() + '/refresh', { method: 'POST', credentials: 'include' });
+      if (!res.ok) return false;
+      accessToken = (await res.json()).access_token;
+      return true;
+    } catch { return false; }
+  }
+
+  // fetch with the access token; on 401, refresh once and retry, else send the user to log in
+  async function apiFetch(path, options = {}) {
+    const send = () => fetch(getApiUrl() + path, {
+      ...options,
+      credentials: 'include',
+      headers: { ...(options.headers || {}), ...(accessToken ? { Authorization: 'Bearer ' + accessToken } : {}) },
+    });
+    let res = await send();
+    if (res.status === 401) {
+      if (await refreshSession()) {
+        res = await send();
+      }
+      if (res.status === 401) showAuth('Your session has ended. Please log in again.');
+    }
+    return res;
+  }
+
+  function showAuth(message = '') {
+    accessToken = null;
+    document.getElementById('auth-error').textContent = message;
+    document.getElementById('auth-overlay').hidden = false;
+  }
+
+  function showAuthTab(which) {
+    document.getElementById('login-form').hidden = which !== 'login';
+    document.getElementById('register-form').hidden = which !== 'register';
+    document.getElementById('tab-login').classList.toggle('active', which === 'login');
+    document.getElementById('tab-register').classList.toggle('active', which === 'register');
+    document.getElementById('auth-error').textContent = '';
+  }
+
+  function errorText(detail, fallback) {
+    // FastAPI validation errors come back as a list of {msg, loc}
+    if (Array.isArray(detail)) return detail.map(d => d.msg.replace(/^Value error, /, '')).join(' ');
+    return detail || fallback;
+  }
+
+  async function submitAuth(event, path, body) {
+    event.preventDefault();
+    const button = event.target.querySelector('.auth-submit');
+    button.disabled = true;
+    document.getElementById('auth-error').textContent = '';
+    try {
+      const res = await fetch(getApiUrl() + path, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        document.getElementById('auth-error').textContent = errorText(data.detail, 'Something went wrong. Please try again.');
+        return;
+      }
+      accessToken = data.access_token;
+      await enterApp();
+    } catch {
+      document.getElementById('auth-error').textContent = 'Could not reach the server.';
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  function submitLogin(event) {
+    return submitAuth(event, '/login', {
+      email: document.getElementById('login-email').value.trim(),
+      password: document.getElementById('login-password').value,
+    });
+  }
+
+  function submitRegister(event) {
+    const phone = document.getElementById('reg-phone').value.trim();
+    return submitAuth(event, '/register', {
+      firstname: document.getElementById('reg-firstname').value.trim(),
+      lastname: document.getElementById('reg-lastname').value.trim(),
+      business_name: document.getElementById('reg-business').value.trim(),
+      phone: phone || null,
+      email: document.getElementById('reg-email').value.trim(),
+      password: document.getElementById('reg-password').value,
+    });
+  }
+
+  async function enterApp() {
+    const res = await apiFetch('/api/v1/me');
+    if (!res.ok) { showAuth(); return; }
+    const me = await res.json();
+    document.getElementById('account-name').textContent = me.firstname + ' ' + me.lastname;
+    document.getElementById('account-email').textContent = me.email;
+    document.getElementById('business-name').textContent = me.business_name || 'Your books, in your own words';
+    document.getElementById('auth-overlay').hidden = true;
+    document.getElementById('msg-input').focus();
+  }
+
+  async function logout() {
+    await fetch(getApiUrl() + '/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
+    clearChat();
+    showAuthTab('login');
+    showAuth();
+  }
   function now()       { return new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
   function uid()       { return Math.random().toString(36).slice(2); }
 
@@ -379,8 +569,8 @@
     box.innerHTML = `
       <div class="empty-state" id="empty-state">
         <div class="empty-icon">&#128210;</div>
-        <div class="empty-title">Ready to test</div>
-        <div class="empty-sub">Send a message to the AI bookkeeper. Try logging a sale, recording an expense, or asking for a P&amp;L report.</div>
+        <div class="empty-title">Wetin happen for shop today?</div>
+        <div class="empty-sub">Tell me what you sold, bought, borrowed or collected — in English or Pidgin. Ask who owes you, or how the business is doing.</div>
       </div>`;
   }
 
@@ -496,10 +686,10 @@
     addTyping();
 
     try {
-      const res = await fetch(getApiUrl() + '/api/v1/message', {
+      const res = await apiFetch('/api/v1/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Idempotency-Key': uid() },
-        body: JSON.stringify({ message: text, user_id: getUserId() }),
+        body: JSON.stringify({ message: text }),
         signal: AbortSignal.timeout(30000),
       });
 
@@ -538,10 +728,10 @@
     card.style.pointerEvents = 'none';
 
     try {
-      const res = await fetch(getApiUrl() + '/api/v1/clarify', {
+      const res = await apiFetch('/api/v1/clarify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: getUserId(), transaction_id: transactionId, amount }),
+        body: JSON.stringify({ transaction_id: transactionId, amount }),
         signal: AbortSignal.timeout(10000),
       });
 
@@ -567,7 +757,8 @@
     if (body) body.classList.toggle('open');
   }
 
-  document.getElementById('msg-input').focus();
+  // resume an existing session from the refresh cookie, otherwise ask to log in
+  refreshSession().then(ok => ok ? enterApp() : showAuth());
 </script>
 </body>
 </html>

@@ -1,15 +1,17 @@
 """Ledger rules: settling debts, undo, corrections, and the reports built on them.
 
-Runs against in-memory SQLite, so no Postgres needed:
+Runs against in-memory SQLite by default, so no Postgres needed:
     uv run pytest tools/test/test_ledger.py
+Set TEST_DATABASE_URL to run against Postgres (tables are recreated per test).
 """
+import os
 from datetime import date
 from decimal import Decimal
 
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import NullPool, StaticPool
 
 from config import GenerateDate
 from db import Model, TransactionORM
@@ -28,8 +30,13 @@ ALL_TIME = GenerateDate()
 
 @pytest_asyncio.fixture
 async def db():
-    engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
+    url = os.getenv("TEST_DATABASE_URL")
+    if url:
+        engine = create_async_engine(url, poolclass=NullPool)
+    else:
+        engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
     async with engine.begin() as conn:
+        await conn.run_sync(Model.metadata.drop_all)
         await conn.run_sync(Model.metadata.create_all)
     # expire_on_commit left on, as in production, so lazy-load bugs surface here too
     Session = async_sessionmaker(engine)

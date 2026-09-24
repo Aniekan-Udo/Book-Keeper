@@ -1,14 +1,12 @@
 """
 Integration tests for the session endpoints.
-
-ADAPT: `from main import app` — update to your actual entrypoint.
 """
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 
 from main import app
-from db import get_db
+from db import get_db_session
 
 
 @pytest_asyncio.fixture
@@ -16,8 +14,7 @@ async def client(db_session):
     async def override_get_db():
         yield db_session
 
-    from db import get_db as get_db_dep
-    app.dependency_overrides[get_db_dep] = override_get_db
+    app.dependency_overrides[get_db_session] = override_get_db
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

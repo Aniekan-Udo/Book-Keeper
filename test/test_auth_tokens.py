@@ -13,7 +13,6 @@ from authentication.auth import (
     create_access_token,
     verify_token,
     create_refresh_token,
-    create_step_up_token,
 )
 
 
@@ -118,31 +117,3 @@ def test_access_token_and_refresh_token_are_not_interchangeable():
 
     assert access_payload.get("type") != "refresh"
     assert refresh_payload.get("type") == "refresh"
-
-
-# ---------- Step-up tokens ----------
-
-def test_step_up_token_has_correct_type_and_short_expiry():
-    from jose import jwt
-    from authentication.settings import settings
-
-    token = create_step_up_token({"sub": "user123"})
-    payload = jwt.decode(token, settings.SECRET_KEY.get_secret_value(), algorithms=[settings.ALGORITHM])
-    assert payload["type"] == "step_up"
-    assert payload["sub"] == "user123"
-
-
-def test_step_up_token_cannot_pass_as_access_token():
-    """
-    A step-up token decodes fine (same signing key) but must not be
-    accepted by verify_token as a plain access token, since a
-    sensitive-action-only credential should never grant general API
-    access. Adjust this test if verify_token doesn't currently check
-    "type" — that's a gap worth closing if so.
-    """
-    token = create_step_up_token({"sub": "user123"})
-    # If verify_token doesn't reject step_up-typed tokens today,
-    # this test documents the gap rather than silently passing.
-    with pytest.raises(HTTPException):
-        result = verify_token(token)
-        assert result != "user123", "step-up token should not double as an access token"

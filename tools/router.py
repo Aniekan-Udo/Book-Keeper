@@ -1,55 +1,65 @@
-from db import get_db
-from langgraph.prebuilt import create_react_agent
-from tools.clean_version import build_tools
-from llm import State, GEMINI_KEYS, get_gemini_model  # get_gemini_model + GEMINI_KEYS from earlier
-from tools.prompts import router_sys_msg
-from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
-from typing import List, Optional, Literal, TypedDict
-from tools.generate_PnL import generate_pnl
-from datetime import datetime, date
-from monitoring import tracer
+import time
+
+from langchain.agents import create_agent
+
+from llm import get_chat_model
 from utils import logger, is_rate_limit_error
-import pybreaker
-from fastapi import HTTPException
-
-
-class ReportRequest(BaseModel):
-    report_type: Literal["pnl", "expenses", "receivables"]
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
-
-
-llm_breaker = pybreaker.CircuitBreaker(fail_max=3, reset_timeout=120, exclude=[])
 
 
 class LLMUnavailable(Exception):
     pass
 
 
-@llm_breaker
-async def _call_agent(agent, user_message: str) -> dict:
-    return await agent.ainvoke({"messages": [{"role": "user", "content": user_message}]})
+class CircuitBreaker:
+    """Stop calling the provider for `reset_timeout` seconds after `fail_max` consecutive
+    failures, so an outage fails fast instead of every user waiting on timeouts.
+    (pybreaker's decorator can't see exceptions raised inside an awaited coroutine.)"""
+
+    def __init__(self, fail_max: int = 3, reset_timeout: float = 120):
+        self.fail_max = fail_max
+        self.reset_timeout = reset_timeout
+        self.failures = 0
+        self.opened_at: float | None = None
+
+    @property
+    def is_open(self) -> bool:
+        if self.opened_at is None:
+            return False
+        if time.monotonic() - self.opened_at >= self.reset_timeout:
+            # half-open: let the next call through as a probe
+            self.opened_at = None
+            self.failures = self.fail_max - 1
+            return False
+        return True
+
+    def record_success(self) -> None:
+        self.failures = 0
+        self.opened_at = None
+
+    def record_failure(self) -> None:
+        self.failures += 1
+        if self.failures >= self.fail_max:
+            self.opened_at = time.monotonic()
 
 
-async def handle_message(user_message, db, system_prompt, tools) -> dict:
-    """Note: `model` param is dropped — model is now built per-attempt inside this function."""
-    last_error = None
-    for _ in range(len(GEMINI_KEYS)):
-        model = get_gemini_model()  # fresh client, next key in rotation
-        agent = create_react_agent(model=model, tools=tools, prompt=system_prompt)
-        try:
-            return await _call_agent(agent, user_message)
-        except pybreaker.CircuitBreakerError:
-            logger.warning("LLM circuit breaker is open — rejecting call without hitting the provider")
-            raise LLMUnavailable("The assistant is temporarily unavailable. Please try again in a couple of minutes.")
-        except Exception as e:
-            if is_rate_limit_error(e):
-                logger.warning("Gemini key rate-limited, rotating to next key")
-                last_error = e
-                continue
-            logger.error(f"Agent invocation failed: {e}", exc_info=True)
-            raise
+llm_breaker = CircuitBreaker()
 
-    logger.error(f"All Gemini keys exhausted: {last_error}")
-    raise LLMUnavailable("The assistant is temporarily unavailable. Please try again shortly.")
+
+async def handle_message(user_message: str, system_prompt: str, tools: list) -> dict:
+    if llm_breaker.is_open:
+        logger.warning("LLM circuit breaker is open — rejecting call without hitting the provider")
+        raise LLMUnavailable("The assistant is temporarily unavailable. Please try again in a couple of minutes.")
+
+    agent = create_agent(model=get_chat_model(), tools=tools, system_prompt=system_prompt)
+    try:
+        result = await agent.ainvoke({"messages": [{"role": "user", "content": user_message}]})
+    except Exception as e:
+        llm_breaker.record_failure()
+        if is_rate_limit_error(e):
+            logger.warning("LLM provider rate-limited the request")
+            raise LLMUnavailable("The assistant is busy right now. Please try again shortly.") from e
+        logger.error(f"Agent invocation failed: {e}", exc_info=True)
+        raise
+
+    llm_breaker.record_success()
+    return result

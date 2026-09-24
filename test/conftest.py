@@ -1,19 +1,20 @@
 """
-Shared fixtures for the auth/payment test suite.
+Shared fixtures for the test suite.
 
-ADAPT THESE IMPORTS to match your actual project layout if they differ:
-    from db import Model, User, RefreshToken, StepUpVerification, Transaction, IdempotencyRecord, get_db
-    from authentication.auth import hash_password
-
-Uses a separate test database so tests never touch dev/prod data.
-Set TEST_DATABASE_URL in your environment, or it defaults to a local
-Postgres test DB on a different port/db name than your dev DB.
+Defaults to a throwaway SQLite file so `uv run pytest` works with no services running.
+Set TEST_DATABASE_URL to run against Postgres instead, e.g.
+    postgresql+asyncpg://test:test@localhost:5434/test_db
 """
 import os
 import asyncio
+import tempfile
+
+# settings are read at import time, so test defaults must be in place before importing the app
+os.environ.setdefault("SECRET_KEY", "test-only-secret-key-not-for-production")
 import pytest
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy import event
+from sqlalchemy.ext.asyncio import create_async_engine as _create_async_engine, async_sessionmaker
 from sqlalchemy.pool import NullPool
 
 from db import Model, User
@@ -24,8 +25,23 @@ app.state.limiter.enabled = False
 
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
-    "postgresql+asyncpg://test:test@localhost:5434/test_db",
+    "sqlite+aiosqlite:///" + os.path.join(tempfile.gettempdir(), "bookkeeper_test.sqlite3").replace("\\", "/"),
 )
+
+def create_async_engine(url, **kwargs):
+    engine = _create_async_engine(url, **kwargs)
+    if url.startswith("sqlite"):
+        # pysqlite's own transaction handling breaks SAVEPOINTs, so the per-test rollback
+        # wouldn't undo committed rows. Take over BEGIN ourselves (SQLAlchemy's documented recipe).
+        @event.listens_for(engine.sync_engine, "connect")
+        def _no_implicit_transactions(dbapi_connection, _):
+            dbapi_connection.isolation_level = None
+
+        @event.listens_for(engine.sync_engine, "begin")
+        def _explicit_begin(conn):
+            conn.exec_driver_sql("BEGIN")
+    return engine
+
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_db():
@@ -33,6 +49,7 @@ def setup_test_db():
     async def init_db():
         engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
         async with engine.begin() as conn:
+            await conn.run_sync(Model.metadata.drop_all)  # clear leftovers from an interrupted run
             await conn.run_sync(Model.metadata.create_all)
         await engine.dispose()
 
@@ -75,7 +92,7 @@ async def test_user(db_session):
         lastname="User",
         email="testuser@example.com",
         password=hash_password("correct-horse-battery-staple"),
-        balance=1000,
+        business_name="Test Stores",
     )
     db_session.add(user)
     await db_session.commit()
@@ -84,14 +101,14 @@ async def test_user(db_session):
 
 
 @pytest_asyncio.fixture
-async def test_recipient(db_session):
-    """A second user, for transfer tests."""
+async def other_user(db_session):
+    """A second user, for isolation tests."""
     user = User(
-        firstname="Recipient",
+        firstname="Other",
         lastname="User",
-        email="recipient@example.com",
+        email="other@example.com",
         password=hash_password("some-other-password"),
-        balance=0,
+        business_name="Other Stores",
     )
     db_session.add(user)
     await db_session.commit()
