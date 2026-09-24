@@ -45,8 +45,9 @@ A bookkeeper that gets the debt numbers wrong is worse than a notebook.
 
 ## Phase 3 — The differentiators
 
-1. **WhatsApp-first channel** (Meta Cloud API webhook). The web chat becomes
-   a dashboard, not the main interface.
+1. ✅ **WhatsApp-first channel** (Meta Cloud API webhook), with conversation memory
+   shared across web and WhatsApp so follow-ups like "15k" work. Next: onboarding
+   entirely inside WhatsApp (no web sign-up), and turning the web chat into a dashboard.
 2. **Voice notes + local languages.** Transcribe voice notes; understand and
    reply in Pidgin, Yoruba, Hausa, Igbo, matching the user's register.
 3. **Debt collection loop.** Store debtor phone numbers; "remind Mama Chidi"

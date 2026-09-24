@@ -45,14 +45,17 @@ class CircuitBreaker:
 llm_breaker = CircuitBreaker()
 
 
-async def handle_message(user_message: str, system_prompt: str, tools: list) -> dict:
+async def handle_message(user_message: str, system_prompt: str, tools: list,
+                         history: list[dict] | None = None) -> dict:
+    """`history`: earlier turns as [{"role": "user"|"assistant", "content": str}], oldest first."""
     if llm_breaker.is_open:
         logger.warning("LLM circuit breaker is open — rejecting call without hitting the provider")
         raise LLMUnavailable("The assistant is temporarily unavailable. Please try again in a couple of minutes.")
 
     agent = create_agent(model=get_chat_model(), tools=tools, system_prompt=system_prompt)
     try:
-        result = await agent.ainvoke({"messages": [{"role": "user", "content": user_message}]})
+        messages = [*(history or []), {"role": "user", "content": user_message}]
+        result = await agent.ainvoke({"messages": messages})
     except Exception as e:
         llm_breaker.record_failure()
         if is_rate_limit_error(e):

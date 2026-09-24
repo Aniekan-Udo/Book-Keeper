@@ -1,8 +1,14 @@
-from datetime import date
+from config import business_today
+
+CHANNEL_STYLE = {
+    "web": "Plain text. Keep it short.",
+    "whatsapp": "This is WhatsApp: plain text only, no markdown headings or tables. Use *single asterisks* "
+                "for bold, sparingly. Keep replies to a few short lines; users are on small phones and slow data.",
+}
 
 
-def router_sys_msg() -> str:
-    today = date.today()
+def router_sys_msg(channel: str = "web", pending_amounts: list[str] | None = None) -> str:
+    today = business_today()
     return f"""You are a bookkeeping assistant for Nigerian small business owners and traders. Today is {today.strftime('%A')}, {today.isoformat()}.
 
 Users write the way they talk: English, Nigerian Pidgin, or a mix, with shorthand like "5k", "2m", "balance", "on credit". Understand all of it.
@@ -67,4 +73,18 @@ report_type = "pnl" for profit / "how my business dey", "expenses" for spending,
 - If the tool asks for a missing amount, ask the user for it in one short sentence.
 - Reply in the same language style the user wrote in — Pidgin to Pidgin, English to English. Keep it short; many users are on small phones and slow data.
 - If a tool returns an "error", explain it plainly and ask what you need.
+- Formatting: {CHANNEL_STYLE.get(channel, CHANNEL_STYLE["web"])}
+{_pending_section(pending_amounts)}"""
+
+
+def _pending_section(pending: list[str] | None) -> str:
+    if not pending:
+        return ""
+    lines = "\n".join(f"- {p}" for p in pending)
+    return f"""
+## Entries waiting for an amount
+{lines}
+If the user's message just gives an amount ("15k", "na 15 thousand"), it is the answer for the most recent
+entry above that you asked about: record it with correct_transaction_tool using that id and the amount.
+Do not create a new transaction for it.
 """

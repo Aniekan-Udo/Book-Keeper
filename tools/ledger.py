@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import business_today
 from db import TransactionORM, RepaymentAllocation
 from tools.formatting import format_naira
 
@@ -181,7 +182,7 @@ async def persist_transactions(db: AsyncSession, transactions: list[TransactionI
                 type=t.type, party=t.party, item=t.item, quantity=t.quantity, unit=t.unit,
                 amount=to_money(t.amount), amount_paid=to_money(t.amount_paid),
                 direction=t.direction, note=t.note,
-                date=t.date or date_type.today(),
+                date=t.date or business_today(),
                 is_deleted=False,
             )
             _settle(row)

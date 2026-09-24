@@ -4,6 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent  # goes up from authentication/ to project root
 
+# app-wide settings (named for where they started: auth)
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",
@@ -18,6 +19,20 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = False
     # comma-separated origins allowed to call the API cross-origin; empty = same-origin only
     ALLOWED_ORIGINS: str = ""
+    # public address of the web app, used in links sent over WhatsApp (e.g. sign-up)
+    APP_PUBLIC_URL: str = ""
+
+    # WhatsApp Cloud API — the webhook stays disabled until all four are set
+    WHATSAPP_VERIFY_TOKEN: SecretStr | None = None   # any string; also entered in Meta's webhook setup
+    WHATSAPP_APP_SECRET: SecretStr | None = None     # Meta app secret, signs webhook payloads
+    WHATSAPP_ACCESS_TOKEN: SecretStr | None = None   # system-user token with whatsapp_business_messaging
+    WHATSAPP_PHONE_NUMBER_ID: str | None = None      # the business number's id (not the number itself)
+    WHATSAPP_API_VERSION: str = "v23.0"
+
+    @property
+    def whatsapp_enabled(self) -> bool:
+        return all((self.WHATSAPP_VERIFY_TOKEN, self.WHATSAPP_APP_SECRET,
+                    self.WHATSAPP_ACCESS_TOKEN, self.WHATSAPP_PHONE_NUMBER_ID))
 
     @property
     def allowed_origins(self) -> list[str]:

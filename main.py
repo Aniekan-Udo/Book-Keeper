@@ -11,12 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from authentication.auth import get_current_user
 from authentication.settings import settings
+from channels import whatsapp
 from db import User, get_db_session
 from endpoints import login, logout, refresh, registration
-from tools.clean_version import build_tools
+from tools.assistant import respond
 from tools.ledger import LedgerError, resolve_clarification
-from tools.prompts import router_sys_msg
-from tools.router import LLMUnavailable, handle_message
+from tools.router import LLMUnavailable
 from utils import get_cached_response, limiter, logger, store_response
 
 app = FastAPI(title="AI Book-Keeper")
@@ -32,7 +32,7 @@ if settings.allowed_origins:
         allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
     )
 
-for module in (registration, login, refresh, logout):
+for module in (registration, login, refresh, logout, whatsapp):
     app.include_router(module.router)
 
 
@@ -67,11 +67,8 @@ async def post_message(request: Request, req: MessageRequest,
             return MessageResponse(**cached)
 
     try:
-        clarifications: list[dict] = []
-        tools = build_tools(db, user_id, clarifications)
-        result = await handle_message(req.message, router_sys_msg(), tools)
-        reply = result["messages"][-1].text or "I wasn't able to process that. Could you rephrase or try again?"
-        response = MessageResponse(reply=reply, clarifications=clarifications)
+        answer = await respond(db, user_id, req.message, channel="web")
+        response = MessageResponse(reply=answer.reply, clarifications=answer.clarifications)
 
         if idempotency_key:
             await store_response(db, idempotency_key, user_id, response.model_dump())

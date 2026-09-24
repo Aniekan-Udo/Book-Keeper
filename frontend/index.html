@@ -757,6 +757,13 @@
     if (body) body.classList.toggle('open');
   }
 
+  // arriving from the WhatsApp sign-up link: open sign-up with the number filled in
+  const params = new URLSearchParams(location.search);
+  if (params.get('signup')) {
+    showAuthTab('register');
+    document.getElementById('reg-phone').value = params.get('phone') || '';
+  }
+
   // resume an existing session from the refresh cookie, otherwise ask to log in
   refreshSession().then(ok => ok ? enterApp() : showAuth());
 </script>

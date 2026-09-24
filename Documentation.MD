@@ -16,7 +16,8 @@ browser (frontend/index.html)
    ▼
 FastAPI (main.py)
    ├── endpoints/        register, login, refresh, logout
-   ├── /api/v1/message   → tools/router.py: LLM agent (llm.py) with the tools below
+   ├── /api/v1/message   ┐
+   ├── /webhooks/whatsapp┴→ tools/assistant.py (memory) → tools/router.py: LLM agent (llm.py)
    └── /api/v1/clarify   → fill in a missing amount directly, no LLM
                                    │
 tools/clean_version.py  agent tools: extract, report, query, undo, correct
@@ -122,7 +123,44 @@ uv run python -m tools.evals          # live model calls, not part of pytest
 
 ---
 
-## 5. Idempotency
+## 5. Channels and conversation memory
+
+Every channel goes through `tools/assistant.respond()`, so web chat and WhatsApp behave
+identically and share one memory per user.
+
+**Memory.** The last 8 turns from the past 30 minutes (`conversation_turns`) are passed
+to the model, plus a list of entries still waiting for an amount, with their ids. That is
+what lets a bare "15k" fill in the rice sale the assistant just asked about. Only user
+text and final replies are stored, not tool calls. Turns for one user are processed one
+at a time (per-process lock).
+
+**Dates** are Nigerian time (`config.business_today()`, Africa/Lagos) regardless of the
+server's timezone.
+
+### WhatsApp (`channels/whatsapp.py`)
+
+1. In the Meta developer dashboard, add the WhatsApp product, register a business number,
+   and create a permanent system-user token with `whatsapp_business_messaging`.
+2. Set `WHATSAPP_VERIFY_TOKEN` (any string you choose), `WHATSAPP_APP_SECRET`,
+   `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, and `APP_PUBLIC_URL`.
+3. Webhook callback URL: `https://<domain>/webhooks/whatsapp`, verify token as above,
+   subscribe to `messages`.
+
+Inbound flow: verify the `X-Hub-Signature-256` HMAC → record the message id in
+`whatsapp_inbound_messages` (unique — Meta redelivers webhooks) → return 200 at once →
+answer in a background task. Senders are matched to accounts by phone (`+234…`);
+unknown numbers get a sign-up link that pre-fills their number. Voice notes and other
+media get a polite "text only for now" reply.
+
+Trade-off: a message is marked as taken before it's answered, so a crash mid-answer
+drops that reply rather than risking a double-recorded sale.
+
+Replies are only free-form within 24 hours of the user's last message (WhatsApp rule).
+Proactive messages — debt reminders, weekly summaries — will need approved templates.
+
+---
+
+## 6. Idempotency
 
 `/api/v1/message` accepts an `Idempotency-Key` header. The response is stored in
 `idempotency_records` and replayed on retry, so a flaky connection resending a message
@@ -130,7 +168,7 @@ doesn't record a sale twice.
 
 ---
 
-## 6. Running it
+## 7. Running it
 
 ```bash
 cp .env.example .env         # fill in SECRET_KEY, GOOGLE_API_KEY, Postgres credentials
@@ -164,7 +202,7 @@ TEST_DATABASE_URL=postgresql+asyncpg://... uv run pytest   # against Postgres
 
 ---
 
-## 7. Production checklist
+## 8. Production checklist
 
 - `SECRET_KEY` from a secrets manager, unique per environment.
 - `COOKIE_SECURE=true` (HTTPS).

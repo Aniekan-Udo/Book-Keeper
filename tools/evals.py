@@ -20,10 +20,8 @@ from sqlalchemy import select  # noqa: E402
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker  # noqa: E402
 from sqlalchemy.pool import StaticPool  # noqa: E402
 
-from db import Model, TransactionORM  # noqa: E402
-from tools.clean_version import build_tools  # noqa: E402
-from tools.prompts import router_sys_msg  # noqa: E402
-from tools.router import handle_message  # noqa: E402
+from db import Model, TransactionORM, User  # noqa: E402
+from tools.assistant import respond  # noqa: E402
 
 USER_ID = 1
 
@@ -36,6 +34,9 @@ class Case:
     message: str
     # expected entries recorded by `message`; only the listed fields are compared
     expected: list[dict] = field(default_factory=list)
+    # instead of checking new entries, check every entry in the books afterwards
+    # (for messages that should update an existing entry rather than add one)
+    expected_books: list[dict] | None = None
 
 
 CASES = [
@@ -68,6 +69,12 @@ CASES = [
          [{"type": "expense", "amount": 1500000}]),
     Case("pidgin loan given", [], "Bisi collect 30k loan from me",
          [{"type": "loan_given", "party": "Bisi", "amount": 30000}]),
+    Case("memory amount follow-up", ["I sell 5 bags of beans to Tunde"], "15k",
+         expected_books=[{"type": "sale", "party": "Tunde", "amount": 15000, "status": "complete"}]),
+    Case("memory cancel that", ["Paid 20k for fuel"], "cancel that",
+         expected_books=[{"type": "expense", "is_deleted": True}]),
+    Case("memory correction", ["Paid 50k for fuel"], "sorry na 45k",
+         expected_books=[{"type": "expense", "amount": 45000, "is_deleted": False}]),
 ]
 
 
@@ -92,17 +99,23 @@ async def run_case(case: Case) -> tuple[bool, str]:
     Session = async_sessionmaker(engine)
     try:
         async with Session() as db:
+            db.add(User(id=USER_ID, firstname="Eval", lastname="User", email="eval@example.com", password="x"))
+            await db.commit()
+            # same path real users take, so conversation memory and pending amounts are in play
             for msg in case.setup:
-                await handle_message(msg, router_sys_msg(), build_tools(db, USER_ID))
+                await respond(db, USER_ID, msg, channel="whatsapp")
             before = set((await db.execute(select(TransactionORM.id))).scalars().all())
 
-            result = await handle_message(case.message, router_sys_msg(), build_tools(db, USER_ID))
-            reply = result["messages"][-1].text
+            reply = (await respond(db, USER_ID, case.message, channel="whatsapp")).reply
 
-            rows = [r for r in (await db.execute(select(TransactionORM))).scalars().all() if r.id not in before]
+            all_rows = (await db.execute(select(TransactionORM).execution_options(populate_existing=True))).scalars().all()
+            if case.expected_books is not None:
+                rows, expected = all_rows, case.expected_books
+            else:
+                rows, expected = [r for r in all_rows if r.id not in before], case.expected
             unmatched = list(rows)
             missing = []
-            for exp in case.expected:
+            for exp in expected:
                 hit = next((r for r in unmatched if _matches(r, exp)), None)
                 if hit is None:
                     missing.append(exp)
@@ -112,7 +125,7 @@ async def run_case(case: Case) -> tuple[bool, str]:
             ok = not missing and not unmatched
             detail = "" if ok else (
                 f"\n    missing:  {missing}"
-                f"\n    recorded: {[{k: getattr(r, k) for k in ('type', 'direction', 'party', 'amount', 'outstanding', 'status')} for r in rows]}"
+                f"\n    recorded: {[{k: getattr(r, k) for k in ('type', 'direction', 'party', 'amount', 'outstanding', 'status', 'is_deleted')} for r in rows]}"
                 f"\n    reply:    {reply!r}"
             )
             return ok, detail

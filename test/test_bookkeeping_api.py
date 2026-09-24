@@ -8,6 +8,7 @@ from httpx import AsyncClient, ASGITransport
 from langchain_core.messages import AIMessage
 
 import main
+from tools import router
 from db import get_db_session
 
 SIGNUP = {
@@ -32,13 +33,13 @@ def fake_llm(monkeypatch):
     """Stand-in agent: records whatever transactions the test queues up, via the real tool."""
     queued: list[dict] = []
 
-    async def handle_message(user_message, system_prompt, tools):
+    async def handle_message(user_message, system_prompt, tools, history=None):
         extract = next(t for t in tools if t.name == "extract_transactions_tool")
         if queued:
             await extract.ainvoke({"transactions": queued})
         return {"messages": [AIMessage(content="Recorded.")]}
 
-    monkeypatch.setattr(main, "handle_message", handle_message)
+    monkeypatch.setattr(router, "handle_message", handle_message)
     return queued
 
 

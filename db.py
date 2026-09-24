@@ -115,6 +115,34 @@ class RepaymentAllocation(Model):
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
 
 
+class ConversationTurn(Model):
+    """Recent chat history, so short follow-ups ("15k", "cancel that") make sense.
+    Only the user's text and the assistant's final reply are kept, not tool calls."""
+    __tablename__ = "conversation_turns"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("user.id"), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(SQLEnum("user", "assistant", name="conversation_role"), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    channel: Mapped[str] = mapped_column(String(20), nullable=False)  # "web" / "whatsapp"
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), index=True
+    )
+
+
+class WhatsAppInboundMessage(Model):
+    """Every WhatsApp message id we've accepted. Meta redelivers webhooks, and the unique
+    constraint is what stops a redelivery from recording the same sale twice."""
+    __tablename__ = "whatsapp_inbound_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    wamid: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    wa_from: Mapped[str] = mapped_column(String(20), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+
 async def init_models():
     async with engine.begin() as conn:
         await conn.run_sync(Model.metadata.create_all)

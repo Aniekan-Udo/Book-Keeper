@@ -1,6 +1,14 @@
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, model_validator
+
+# users' "today" is Nigerian time, whatever timezone the server runs in
+BUSINESS_TZ = ZoneInfo("Africa/Lagos")
+
+
+def business_today() -> date:
+    return datetime.now(BUSINESS_TZ).date()
 
 
 class GenerateDate(BaseModel):
