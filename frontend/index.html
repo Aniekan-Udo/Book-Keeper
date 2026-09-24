@@ -541,7 +541,7 @@
       const res = await fetch(getApiUrl() + '/api/v1/clarify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transaction_id: transactionId, amount }),
+        body: JSON.stringify({ user_id: getUserId(), transaction_id: transactionId, amount }),
         signal: AbortSignal.timeout(10000),
       });
 

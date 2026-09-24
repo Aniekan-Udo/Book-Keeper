@@ -6,10 +6,10 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
-from db import Model, LOCAL_POSTGRES_URI
+from db import Model, POSTGRES_URI
 
 config = context.config
-config.set_main_option("sqlalchemy.url", LOCAL_POSTGRES_URI)
+config.set_main_option("sqlalchemy.url", POSTGRES_URI)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

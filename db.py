@@ -1,12 +1,12 @@
 import os
 import enum
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from sqlalchemy import Date
+from datetime import date, datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy import MetaData, String, Date, Integer, Text, Float, ForeignKey, DECIMAL, DateTime, Boolean, JSON, Enum as SQLEnum
+from sqlalchemy import MetaData, String, Date, Integer, Text, Float, ForeignKey, DECIMAL, DateTime, Boolean, JSON, Numeric, Enum as SQLEnum
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -103,6 +103,9 @@ class TransactionORM(Model):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    # every transaction extracted from one message shares a batch_id, so "undo that" can
+    # remove the whole message's worth of entries at once
+    batch_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     type: Mapped[str] = mapped_column(
         SQLEnum("sale", "expense", "loan_taken", "loan_given", "debt_repayment", name="transaction_type"),
         nullable=False,
@@ -112,9 +115,11 @@ class TransactionORM(Model):
     item: Mapped[str | None] = mapped_column(String(120), nullable=True)
     quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
     unit: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    amount: Mapped[float | None] = mapped_column(Float, nullable=True)
-    amount_paid: Mapped[float | None] = mapped_column(Float, nullable=True)
-    outstanding: Mapped[float | None] = mapped_column(Float, nullable=True)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    # for sales/expenses: how much of `amount` has been settled; for loans: how much has been repaid
+    amount_paid: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    # still owed on this entry — to the user (sale, loan_given) or by the user (expense, loan_taken)
+    outstanding: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     direction: Mapped[str] = mapped_column(
         SQLEnum("in", "out", name="transaction_direction"),
         nullable=False,
@@ -126,9 +131,20 @@ class TransactionORM(Model):
         nullable=False,
         default="complete",
     )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
+
+
+class RepaymentAllocation(Model):
+    """How much of a debt_repayment went to settle which sale/expense/loan."""
+    __tablename__ = "repayment_allocations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    repayment_id: Mapped[int] = mapped_column(Integer, ForeignKey("business_transactions.id"), nullable=False, index=True)
+    applied_to_id: Mapped[int] = mapped_column(Integer, ForeignKey("business_transactions.id"), nullable=False, index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
 
 
 class Expense(Model):

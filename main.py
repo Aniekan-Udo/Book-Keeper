@@ -5,9 +5,8 @@ import os
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from tools.router import handle_message
-from tools.formatting import resolve_clarification
+from tools.ledger import LedgerError, resolve_clarification
 from db import get_db_session
-from llm import llm
 from tools.prompts import router_sys_msg
 from tools.clean_version import build_tools
 from utils import logger
@@ -43,10 +42,13 @@ class MessageRequest(BaseModel):
 
 class MessageResponse(BaseModel):
     reply: str
+    clarifications: list[dict] = []
 
 class ResolveClarificationRequest(BaseModel):
+    # TODO(phase 2): take user_id from the auth token instead of the request body
+    user_id: int
     transaction_id: int
-    amount: float
+    amount: float = Field(..., gt=0)
 
 
 @app.post("/api/v1/message", response_model=MessageResponse)
@@ -59,11 +61,12 @@ async def post_message(request: Request, req: MessageRequest, db: AsyncSession =
             return MessageResponse(**cached)
 
     try:
-        tools = build_tools(db, req.user_id)
+        clarifications: list[dict] = []
+        tools = build_tools(db, req.user_id, clarifications)
         sys_msg = router_sys_msg()
         result = await handle_message(req.message, db, sys_msg, tools)
         reply = result["messages"][-1].content or "I wasn't able to process that. Could you rephrase or try again?"
-        response = MessageResponse(reply=reply)
+        response = MessageResponse(reply=reply, clarifications=clarifications)
 
         if idempotency_key:
             await store_response(db, idempotency_key, req.user_id, response.model_dump())
@@ -79,8 +82,14 @@ async def post_message(request: Request, req: MessageRequest, db: AsyncSession =
 @app.post("/api/v1/clarify", response_model=MessageResponse)
 async def post_clarify(req: ResolveClarificationRequest, db: AsyncSession = Depends(get_db_session)):
     try:
-        txn = await resolve_clarification(db, req.transaction_id, req.amount)
-        return MessageResponse(reply=f"Got it — amount for {txn.item or txn.type} set to ₦{txn.amount:,.2f}.")
+        result = await resolve_clarification(db, req.user_id, req.transaction_id, req.amount)
+        txn = result["updated"]
+        reply = f"Got it — amount for {txn['item'] or txn['type'].replace('_', ' ')} set to ₦{txn['amount']:,.2f}."
+        if result["notes"]:
+            reply += " " + " ".join(result["notes"])
+        return MessageResponse(reply=reply)
+    except LedgerError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"post_clarify failed: {e}", exc_info=True)
         raise HTTPException(status_code=503, detail="Something went wrong processing your message. Please try again.")
