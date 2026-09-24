@@ -48,8 +48,11 @@ A bookkeeper that gets the debt numbers wrong is worse than a notebook.
 1. ✅ **WhatsApp-first channel** (Meta Cloud API webhook), with conversation memory
    shared across web and WhatsApp so follow-ups like "15k" work. Next: onboarding
    entirely inside WhatsApp (no web sign-up), and turning the web chat into a dashboard.
-2. **Voice notes + local languages.** Transcribe voice notes; understand and
-   reply in Pidgin, Yoruba, Hausa, Igbo, matching the user's register.
+2. ✅ **Voice notes + local languages.** WhatsApp voice notes are transcribed in the
+   language spoken (English, Pidgin, Yoruba, Hausa, Igbo) with an English translation
+   where needed, echoed back ("🎤 what I heard"), then handled like typed messages.
+   Next: voice in the web app (browser audio needs converting from webm), and
+   Yoruba/Hausa/Igbo eval cases from real recordings.
 3. **Debt collection loop.** Store debtor phone numbers; "remind Mama Chidi"
    sends a polite WhatsApp reminder with the balance; scheduled nudges on
    due dates ("she go pay Friday").

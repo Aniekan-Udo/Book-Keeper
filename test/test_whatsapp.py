@@ -203,11 +203,11 @@ async def test_messages_for_another_business_number_are_ignored(client, ada, age
     assert sent == [] and agent.calls == []
 
 
-async def test_voice_note_gets_a_polite_reply(client, ada, agent, sent):
-    audio = {"from": ADA_WA, "id": "wamid.voice", "timestamp": "1790000000", "type": "audio",
-             "audio": {"id": "media-1", "mime_type": "audio/ogg; codecs=opus"}}
-    await post_signed(client, payload(audio))
-    assert "voice notes" in sent[0][1]
+async def test_photos_get_a_polite_reply(client, ada, agent, sent):
+    image = {"from": ADA_WA, "id": "wamid.img", "timestamp": "1790000000", "type": "image",
+             "image": {"id": "media-1", "mime_type": "image/jpeg"}}
+    await post_signed(client, payload(image))
+    assert sent == [(ADA_WA, whatsapp.UNSUPPORTED_REPLY)]
     assert agent.calls == []
 
 

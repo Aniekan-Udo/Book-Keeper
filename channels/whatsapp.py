@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from authentication.settings import settings
 from db import SessionLocal, User, WhatsAppInboundMessage, get_db_session
+from tools import transcribe as voice
 from tools.assistant import respond
 from tools.router import LLMUnavailable
 from utils import logger
@@ -31,6 +32,9 @@ from utils import logger
 router = APIRouter(prefix="/webhooks/whatsapp", tags=["whatsapp"])
 
 MAX_MESSAGE_CHARS = 4096  # WhatsApp's limit for one text message
+# ~2–3 minutes of WhatsApp voice (Opus, ~16 kbps); longer notes are rarely one transaction
+MAX_VOICE_BYTES = 400_000
+HEARD_PREVIEW_CHARS = 200
 
 
 @asynccontextmanager
@@ -59,10 +63,9 @@ async def send_text(to: str, body: str) -> None:
     """Send a plain text message to a WhatsApp number (digits only, e.g. 2348031234567)."""
     url = (f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/"
            f"{settings.WHATSAPP_PHONE_NUMBER_ID}/messages")
-    headers = {"Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN.get_secret_value()}"}
     async with httpx.AsyncClient(timeout=15) as client:
         for chunk in _split(body):
-            response = await client.post(url, headers=headers, json={
+            response = await client.post(url, headers=_graph_headers(), json={
                 "messaging_product": "whatsapp",
                 "recipient_type": "individual",
                 "to": to,
@@ -72,6 +75,31 @@ async def send_text(to: str, body: str) -> None:
             if response.status_code >= 400:
                 logger.error("WhatsApp send failed", status=response.status_code, body=response.text[:500])
                 return
+
+
+class MediaTooLarge(Exception):
+    pass
+
+
+def _graph_headers() -> dict:
+    return {"Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN.get_secret_value()}"}
+
+
+async def download_media(media_id: str, max_bytes: int = MAX_VOICE_BYTES) -> bytes:
+    """Fetch an inbound media file. Two steps: the media id resolves to a short-lived
+    URL, which must itself be fetched with the same access token."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        meta = await client.get(f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{media_id}",
+                                headers=_graph_headers())
+        meta.raise_for_status()
+        info = meta.json()
+        if int(info.get("file_size") or 0) > max_bytes:
+            raise MediaTooLarge()
+        media = await client.get(info["url"], headers=_graph_headers())
+        media.raise_for_status()
+        if len(media.content) > max_bytes:
+            raise MediaTooLarge()
+        return media.content
 
 
 # ── inbound ──────────────────────────────────────────────────────────────────
@@ -99,12 +127,53 @@ def signup_message(wa_from: str) -> str:
             f"\"I sell 3 bags rice to Emeka, 45k, he pay 30k\".\n\n{where}\n\nThen come back and message me here.")
 
 
-UNSUPPORTED_REPLY = {
-    "audio": "I can't listen to voice notes yet — please type it for now. Voice notes are coming soon!",
-}
-DEFAULT_UNSUPPORTED_REPLY = "I can only read text messages for now. Please type what happened."
+UNSUPPORTED_REPLY = "I can read text and listen to voice notes, but not photos or files yet. Please type or say what happened."
+VOICE_TOO_LONG_REPLY = "That voice note is a bit long for me. Please send shorter ones — one or two sales at a time."
+VOICE_FORMAT_REPLY = "I couldn't open that audio. Please record it as a normal WhatsApp voice note, or type it."
+VOICE_INAUDIBLE_REPLY = "I couldn't hear that clearly. Please send the voice note again somewhere quieter, or type it."
+VOICE_FAILED_REPLY = "I couldn't process that voice note just now. Please try again, or type it."
 BUSY_REPLY = "I'm a bit busy right now. Please send that again in a couple of minutes."
 ERROR_REPLY = "Sorry, something went wrong on my side. Please try again."
+
+
+class VoiceNoteProblem(Exception):
+    """Carries the reply to send when a voice note can't be turned into text."""
+    def __init__(self, reply: str):
+        super().__init__(reply)
+        self.reply = reply
+
+
+async def voice_note_text(audio: dict) -> tuple[str, str]:
+    """Returns (text for the assistant, what was heard — echoed back to the user)."""
+    try:
+        voice.normalize_mime(audio.get("mime_type", ""))
+    except voice.UnsupportedAudio:
+        raise VoiceNoteProblem(VOICE_FORMAT_REPLY)
+
+    try:
+        data = await download_media(audio["id"])
+    except MediaTooLarge:
+        raise VoiceNoteProblem(VOICE_TOO_LONG_REPLY)
+    except httpx.HTTPError as e:
+        logger.error(f"WhatsApp media download failed: {e}")
+        raise VoiceNoteProblem(VOICE_FAILED_REPLY)
+
+    try:
+        heard = await voice.transcribe(data, audio["mime_type"])
+    except Exception as e:
+        logger.error(f"Voice note transcription failed: {e}", exc_info=True)
+        raise VoiceNoteProblem(VOICE_FAILED_REPLY)
+
+    if not heard.audible or not heard.transcript.strip():
+        raise VoiceNoteProblem(VOICE_INAUDIBLE_REPLY)
+    return voice.as_message(heard), heard.transcript.strip()
+
+
+def _with_heard(heard: str, reply: str) -> str:
+    """Show the user what we understood from their voice note, so a mishearing is obvious."""
+    if len(heard) > HEARD_PREVIEW_CHARS:
+        heard = heard[:HEARD_PREVIEW_CHARS].rsplit(" ", 1)[0] + "…"
+    return f"🎤 “{heard}”\n\n{reply}"
 
 
 async def process_inbound(message: dict) -> None:
@@ -117,13 +186,22 @@ async def process_inbound(message: dict) -> None:
             await send_text(wa_from, signup_message(wa_from))
             return
 
-        if message.get("type") != "text":
-            await send_text(wa_from, UNSUPPORTED_REPLY.get(message.get("type"), DEFAULT_UNSUPPORTED_REPLY))
+        heard = None
+        if message.get("type") == "text":
+            text = message["text"]["body"]
+        elif message.get("type") == "audio":
+            try:
+                text, heard = await voice_note_text(message["audio"])
+            except VoiceNoteProblem as problem:
+                await send_text(wa_from, problem.reply)
+                return
+        else:
+            await send_text(wa_from, UNSUPPORTED_REPLY)
             return
 
         try:
-            answer = await respond(db, user_id, message["text"]["body"], channel="whatsapp")
-            reply = answer.reply
+            answer = await respond(db, user_id, text, channel="whatsapp")
+            reply = _with_heard(heard, answer.reply) if heard else answer.reply
         except LLMUnavailable:
             reply = BUSY_REPLY
         except Exception as e:

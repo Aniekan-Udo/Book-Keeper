@@ -29,6 +29,7 @@ services:
       SECRET_KEY: ${SECRET_KEY}
       LLM_MODEL: ${LLM_MODEL:-google_genai:gemini-2.5-flash}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      TRANSCRIPTION_MODEL: ${TRANSCRIPTION_MODEL:-google_genai:gemini-2.5-flash}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}

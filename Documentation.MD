@@ -149,8 +149,28 @@ server's timezone.
 Inbound flow: verify the `X-Hub-Signature-256` HMAC → record the message id in
 `whatsapp_inbound_messages` (unique — Meta redelivers webhooks) → return 200 at once →
 answer in a background task. Senders are matched to accounts by phone (`+234…`);
-unknown numbers get a sign-up link that pre-fills their number. Voice notes and other
-media get a polite "text only for now" reply.
+unknown numbers get a sign-up link that pre-fills their number. Photos and files get a
+polite "text or voice only" reply.
+
+### Voice notes (`tools/transcribe.py`)
+
+Voice notes are downloaded from Meta (media id → short-lived URL, both with the access
+token; capped at ~400 KB, about 2–3 minutes), transcribed by `TRANSCRIPTION_MODEL`
+(default Gemini, which accepts audio) into structured output — transcript in the
+language spoken, language, English translation for Yoruba/Hausa/Igbo, and whether any
+speech was audible — then handled exactly like a typed message prefixed `(voice note)`.
+The reply starts with `🎤 “what I heard”` so a misheard name or amount is obvious.
+The prompt tells the assistant to confirm implausible names/amounts from voice notes
+rather than record a guess.
+
+Formats: WhatsApp's `audio/ogg` (Opus), plus mp3, aac, wav, flac. `audio/amr` isn't
+supported by Gemini and gets a "record it as a normal voice note" reply.
+
+Check transcription against real recordings:
+
+```bash
+uv run python -m tools.transcribe note1.ogg note2.ogg
+```
 
 Trade-off: a message is marked as taken before it's answered, so a crash mid-answer
 drops that reply rather than risking a double-recorded sale.
