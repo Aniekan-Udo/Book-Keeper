@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import ConversationTurn, TransactionORM
+from observability import message_tracer, trace_id_of
 from tools.clean_version import build_tools
 from tools.alerts import pending_alerts
 from tools.debt_collection import pending_drafts
@@ -75,12 +76,16 @@ async def respond(db: AsyncSession, user_id: int, text: str, channel: str) -> As
         clarifications: list[dict] = []
         tools = build_tools(db, user_id, clarifications, request_started_at=started)
         prompt = router_sys_msg(channel, pending, drafts, alerts_waiting)
-        result = await router.handle_message(text, prompt, tools, history)
+        tracer = message_tracer(user_id, channel)
+        result = await router.handle_message(text, prompt, tools, history,
+                                             callbacks=[tracer] if tracer else None)
         reply = result["messages"][-1].text or FALLBACK_REPLY
 
         db.add_all([
             ConversationTurn(user_id=user_id, role="user", content=text, channel=channel),
-            ConversationTurn(user_id=user_id, role="assistant", content=reply, channel=channel),
+            # the Opik trace of how this reply was produced, for the pilot report to point at
+            ConversationTurn(user_id=user_id, role="assistant", content=reply, channel=channel,
+                             trace_id=trace_id_of(tracer)),
         ])
         await db.commit()
         return AssistantReply(reply=reply, clarifications=clarifications)

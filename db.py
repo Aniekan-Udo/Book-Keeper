@@ -136,6 +136,8 @@ class ConversationTurn(Model):
     role: Mapped[str] = mapped_column(SQLEnum("user", "assistant", name="conversation_role"), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     channel: Mapped[str] = mapped_column(String(20), nullable=False)  # "web" / "whatsapp"
+    # on assistant turns: the Opik trace showing how the reply was produced (if Opik is on)
+    trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), index=True
     )

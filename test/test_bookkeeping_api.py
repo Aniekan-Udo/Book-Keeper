@@ -22,7 +22,7 @@ def fake_llm(monkeypatch):
     """Stand-in agent: records whatever transactions the test queues up, via the real tool."""
     queued: list[dict] = []
 
-    async def handle_message(user_message, system_prompt, tools, history=None):
+    async def handle_message(user_message, system_prompt, tools, history=None, callbacks=None):
         extract = next(t for t in tools if t.name == "extract_transactions_tool")
         if queued:
             await extract.ainvoke({"transactions": queued})

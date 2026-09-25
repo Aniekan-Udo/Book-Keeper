@@ -12,14 +12,19 @@ On a free-tier key, pace the calls: LLM_REQUESTS_PER_MINUTE=4 uv run python -m t
 Add a case whenever a real user message gets recorded wrong.
 """
 import asyncio
+import os
 import sys
 from dataclasses import dataclass, field
+
+# if Opik is configured, keep eval traces apart from real traders' conversations
+os.environ.setdefault("OPIK_PROJECT_NAME", "book-keeper-evals")
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from db import Model, TransactionORM, User
+from observability import flush as flush_traces
 from tools import router
 from tools.assistant import respond
 
@@ -147,6 +152,7 @@ async def main(name_filter: str | None) -> int:
         passed += ok
         print(f"{'PASS' if ok else 'FAIL'}  {case.name}{detail}")
     print(f"\n{passed}/{len(cases)} passed")
+    flush_traces()
     return 0 if passed == len(cases) else 1
 
 

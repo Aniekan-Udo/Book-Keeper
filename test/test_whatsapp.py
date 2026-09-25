@@ -58,7 +58,7 @@ def agent(monkeypatch):
         transactions: list[dict] = []
         error: Exception | None = None
 
-    async def handle_message(user_message, system_prompt, tools, history=None):
+    async def handle_message(user_message, system_prompt, tools, history=None, callbacks=None):
         Agent.calls.append({"message": user_message, "prompt": system_prompt, "history": history})
         if Agent.error:
             raise Agent.error

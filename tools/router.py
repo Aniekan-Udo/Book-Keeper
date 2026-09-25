@@ -46,8 +46,10 @@ llm_breaker = CircuitBreaker()
 
 
 async def handle_message(user_message: str, system_prompt: str, tools: list,
-                         history: list[dict] | None = None) -> dict:
-    """`history`: earlier turns as [{"role": "user"|"assistant", "content": str}], oldest first."""
+                         history: list[dict] | None = None, callbacks: list | None = None) -> dict:
+    """`history`: earlier turns as [{"role": "user"|"assistant", "content": str}], oldest first.
+    `callbacks`: LangChain callbacks for this run, e.g. the Opik tracer — they see every
+    model call and tool call inside it."""
     if llm_breaker.is_open:
         logger.warning("LLM circuit breaker is open — rejecting call without hitting the provider")
         raise LLMUnavailable("The assistant is temporarily unavailable. Please try again in a couple of minutes.")
@@ -55,7 +57,9 @@ async def handle_message(user_message: str, system_prompt: str, tools: list,
     agent = create_agent(model=get_chat_model(), tools=tools, system_prompt=system_prompt)
     try:
         messages = [*(history or []), {"role": "user", "content": user_message}]
-        result = await agent.ainvoke({"messages": messages})
+        # run_name becomes the trace name in Opik ("trader message" rather than "LangGraph")
+        config = {"callbacks": callbacks, "run_name": "trader message"} if callbacks else None
+        result = await agent.ainvoke({"messages": messages}, config=config)
     except Exception as e:
         llm_breaker.record_failure()
         problem = provider_problem(e)

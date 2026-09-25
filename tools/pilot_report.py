@@ -133,7 +133,10 @@ def _exchange(user: User | None, why: str, turns: list[ConversationTurn]) -> str
     who = f"{user.business_name} ({user.firstname})" if user else "unknown trader"
     when = _aware(turns[-1].created_at).strftime("%b %d %H:%M")
     body = "\n".join(f"> **{'Trader' if t.role == 'user' else 'Bot'}:** {_quote(t.content)}" for t in turns)
-    return f"### {why} — {who}, {when}\n\n{body}\n"
+    # the bot reply in question: how it was produced is in this Opik trace
+    trace = next((t.trace_id for t in reversed(turns) if t.role == "assistant" and t.trace_id), None)
+    where = f"\n\nOpik trace: `{trace}` (search this id in Opik to see every model and tool call)" if trace else ""
+    return f"### {why} — {who}, {when}\n\n{body}{where}\n"
 
 
 async def _main(days: int, out: str | None) -> None:

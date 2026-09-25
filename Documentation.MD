@@ -158,6 +158,25 @@ wrong, add it to `tools/evals.py` and fix the prompt until it passes:
 uv run python -m tools.evals          # live model calls, not part of pytest
 ```
 
+### Observability: Opik (`observability.py`)
+
+With `OPIK_API_KEY` + `OPIK_WORKSPACE` set (or `OPIK_URL_OVERRIDE` for self-hosted Opik),
+every trader message becomes one Opik trace named "trader message", in the thread
+`user-<id>` (so a trader's conversation reads as one thread) and tagged with the channel.
+Inside it: every model call with the full prompt it saw, and every tool call with its
+arguments and result — enough to see *why* the bot recorded something wrong. Model calls
+made inside tools (e.g. parsing a forwarded alert) nest under the same trace.
+
+Each assistant reply stores its trace id (`conversation_turns.trace_id`), and the pilot
+report prints it next to every flagged exchange: search that id in Opik to open it.
+
+Not traced: voice notes and screenshots are transcribed before the agent runs, so raw
+audio and images never go to Opik — only the resulting text. Off by default; tests
+never send traces. Eval runs go to a separate project, `book-keeper-evals`.
+
+Traces contain traders' messages and figures and live on Comet's servers (unless
+self-hosted): the privacy notice must list it before you enable it.
+
 ---
 
 ## 5. Channels and conversation memory

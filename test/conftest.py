@@ -170,3 +170,10 @@ async def new_browser(db_session):
     for client in clients:
         await client.aclose()
     fastapi_app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def no_opik(monkeypatch):
+    """Tests never send traces to Opik, even if .env configures it."""
+    for name in ("OPIK_API_KEY", "OPIK_URL_OVERRIDE"):
+        monkeypatch.delenv(name, raising=False)

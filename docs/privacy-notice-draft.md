@@ -38,6 +38,10 @@ team reads messages to fix mistakes.]** We don't sell your data or use it for ad
 - **Google** processes messages, voice notes and screenshots with AI to understand them.
   [Confirm Google's data-use terms for the paid API tier you use.]
 - **[Hosting provider]** stores our database.
+- **Comet (Opik)** [only if you turn on Opik] stores a record of how Book-Keeper handled
+  each message — your message, what it recorded, and its reply — so we can find and fix
+  mistakes. Voice notes and screenshots are not sent there, only the text read from them.
+  [Say how long Opik keeps traces, and delete them when you no longer need them.]
 
 Some of these companies process data **outside Nigeria**. [Describe the safeguards the NDPA
 requires for cross-border transfers — have your reviewer confirm this section.]

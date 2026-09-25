@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import GenerateDate
 from db import TransactionORM, User
-from monitoring import tracer
 from tools import alerts, debt_collection, statements
 from tools.contacts import save_contact
 from tools.expenses import get_expenses
@@ -83,57 +82,49 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
         expense, a loan, or a repayment. Extract every distinct transaction mentioned
         as a separate item in the list, following the amount/disambiguation/
         no-fabrication rules from your system instructions."""
-        with tracer.start_as_current_span("extract_transactions") as span:
-            span.set_attribute("transactions.count", len(transactions))
-            span.set_attribute("user_id", user_id)
-            result = await persist_transactions(db, transactions, user_id)
-            span.set_attribute("transactions.persisted", len(result["logged"]))
-            if clarifications is not None:
-                clarifications.extend(result["clarifications"])
-            return result
+        result = await persist_transactions(db, transactions, user_id)
+        if clarifications is not None:
+            clarifications.extend(result["clarifications"])
+        return result
 
     @tool
     async def query_transactions_tool(query: TransactionQuery) -> dict:
         """Use this when the user asks about specific past transactions — what they spent
         money on, who they paid, what they sold to someone — rather than a summary report.
         Also use it to find the id of an entry the user wants to change or remove."""
-        with tracer.start_as_current_span("query_transactions") as span:
-            span.set_attribute("query.start_date", str(query.start_date))
-            span.set_attribute("query.end_date", str(query.end_date))
 
-            stmt = select(TransactionORM).where(
-                TransactionORM.user_id == user_id,
-                TransactionORM.is_deleted.is_(False),
-            )
-            if query.start_date:
-                stmt = stmt.where(TransactionORM.date >= query.start_date)
-            if query.end_date:
-                stmt = stmt.where(TransactionORM.date <= query.end_date)
-            if query.amount:
-                stmt = stmt.where(TransactionORM.amount == query.amount)
-            if query.type:
-                stmt = stmt.where(TransactionORM.type == query.type)
-            if query.item_or_party:
-                pattern = f"%{query.item_or_party.strip()}%"
-                stmt = stmt.where(or_(
-                    TransactionORM.item.ilike(pattern),
-                    TransactionORM.party.ilike(pattern),
-                    TransactionORM.note.ilike(pattern),
-                ))
-            stmt = stmt.order_by(TransactionORM.date.desc(), TransactionORM.id.desc()).limit(_QUERY_LIMIT + 1)
+        stmt = select(TransactionORM).where(
+            TransactionORM.user_id == user_id,
+            TransactionORM.is_deleted.is_(False),
+        )
+        if query.start_date:
+            stmt = stmt.where(TransactionORM.date >= query.start_date)
+        if query.end_date:
+            stmt = stmt.where(TransactionORM.date <= query.end_date)
+        if query.amount:
+            stmt = stmt.where(TransactionORM.amount == query.amount)
+        if query.type:
+            stmt = stmt.where(TransactionORM.type == query.type)
+        if query.item_or_party:
+            pattern = f"%{query.item_or_party.strip()}%"
+            stmt = stmt.where(or_(
+                TransactionORM.item.ilike(pattern),
+                TransactionORM.party.ilike(pattern),
+                TransactionORM.note.ilike(pattern),
+            ))
+        stmt = stmt.order_by(TransactionORM.date.desc(), TransactionORM.id.desc()).limit(_QUERY_LIMIT + 1)
 
-            rows = (await db.execute(stmt)).scalars().all()
-            span.set_attribute("query.matches", len(rows))
+        rows = (await db.execute(stmt)).scalars().all()
 
-            if not rows:
-                return {"summary": "I couldn't find a matching transaction for that."}
+        if not rows:
+            return {"summary": "I couldn't find a matching transaction for that."}
 
-            truncated = len(rows) > _QUERY_LIMIT
-            lines = [_describe_for_user(r) for r in rows[:_QUERY_LIMIT]]
-            summary = "You " + "; ".join(lines) + "."
-            if truncated:
-                summary += f" (Showing the {_QUERY_LIMIT} most recent — narrow the dates to see more.)"
-            return {"summary": summary, "matches": len(lines)}
+        truncated = len(rows) > _QUERY_LIMIT
+        lines = [_describe_for_user(r) for r in rows[:_QUERY_LIMIT]]
+        summary = "You " + "; ".join(lines) + "."
+        if truncated:
+            summary += f" (Showing the {_QUERY_LIMIT} most recent — narrow the dates to see more.)"
+        return {"summary": summary, "matches": len(lines)}
 
     @tool
     async def generate_report_tool(
@@ -144,27 +135,24 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
         """Use this when the user asks for their profit/PnL, expenses, what people owe
         them (receivables) or what they owe others (payables). Convert relative time
         language into actual calendar dates. Leave both dates null for all-time."""
-        with tracer.start_as_current_span("generate_report") as span:
-            span.set_attribute("report.type", report_type)
-            dates = GenerateDate(start_date=start_date, end_date=end_date)
-            if report_type == "pnl":
-                return await generate_pnl(db, dates, user_id)
-            if report_type == "expenses":
-                return await get_expenses(db, dates, user_id)
-            if report_type == "payables":
-                return await get_payables(db, dates, user_id)
-            return await get_receivables(db, dates, user_id)
+        dates = GenerateDate(start_date=start_date, end_date=end_date)
+        if report_type == "pnl":
+            return await generate_pnl(db, dates, user_id)
+        if report_type == "expenses":
+            return await get_expenses(db, dates, user_id)
+        if report_type == "payables":
+            return await get_payables(db, dates, user_id)
+        return await get_receivables(db, dates, user_id)
 
     @tool
     async def undo_transaction_tool(transaction_id: Optional[int] = None) -> dict:
         """Use this when the user wants to cancel, remove or undo an entry ("cancel that",
         "delete the fuel expense"). Leave transaction_id null to undo everything recorded
         from their last message; otherwise pass the id (find it with query_transactions_tool)."""
-        with tracer.start_as_current_span("undo_transaction"):
-            try:
-                return await delete_transactions(db, user_id, transaction_id)
-            except LedgerError as e:
-                return {"error": str(e)}
+        try:
+            return await delete_transactions(db, user_id, transaction_id)
+        except LedgerError as e:
+            return {"error": str(e)}
 
     @tool
     async def correct_transaction_tool(correction: Correction) -> dict:
@@ -172,51 +160,47 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
         ("it was 45k not 50k", "that was Tunde not Tayo", "that happened yesterday").
         Only fill the fields that change. Leave transaction_id null for the entry from
         their last message; otherwise find the id with query_transactions_tool."""
-        with tracer.start_as_current_span("correct_transaction"):
-            fields = correction.model_dump(exclude={"transaction_id"}, exclude_none=True)
-            try:
-                return await correct_transaction(db, user_id, correction.transaction_id, **fields)
-            except LedgerError as e:
-                return {"error": str(e)}
+        fields = correction.model_dump(exclude={"transaction_id"}, exclude_none=True)
+        try:
+            return await correct_transaction(db, user_id, correction.transaction_id, **fields)
+        except LedgerError as e:
+            return {"error": str(e)}
 
     @tool
     async def save_contact_tool(name: str, phone: str) -> dict:
         """Use this when the user gives a customer's, borrower's or supplier's phone number
         ("Mama Chidi number na 0803 123 4567"). Use the person's name exactly as the user
         writes it elsewhere, so it matches their debts."""
-        with tracer.start_as_current_span("save_contact"):
-            try:
-                contact = await save_contact(db, user_id, name, phone)
-                result = {"saved": contact.name, "phone": contact.phone}  # read before commit expires it
-                await db.commit()
-                return result
-            except ValueError as e:
-                await db.rollback()
-                return {"error": str(e)}
+        try:
+            contact = await save_contact(db, user_id, name, phone)
+            result = {"saved": contact.name, "phone": contact.phone}  # read before commit expires it
+            await db.commit()
+            return result
+        except ValueError as e:
+            await db.rollback()
+            return {"error": str(e)}
 
     @tool
     async def remind_debtor_tool(party: str) -> dict:
         """Use this when the user wants to remind someone who owes them to pay ("remind
         Mama Chidi", "tell Emeka make he pay"). This only prepares a draft: show the user
         the recipient and message it returns, and ask them to confirm. It does not send."""
-        with tracer.start_as_current_span("remind_debtor"):
-            user = await db.get(User, user_id)
-            try:
-                return await debt_collection.draft_reminder(db, user, party)
-            except debt_collection.ReminderRefused as e:
-                return {"error": str(e)}
+        user = await db.get(User, user_id)
+        try:
+            return await debt_collection.draft_reminder(db, user, party)
+        except debt_collection.ReminderRefused as e:
+            return {"error": str(e)}
 
     @tool
     async def confirm_reminder_tool(reminder_id: int) -> dict:
         """Send a reminder draft, ONLY after the user has seen it and said yes in a new
         message ("yes", "send am", "ok go ahead"). Never call this in the same turn as
         remind_debtor_tool, and never if the user said no or changed the subject."""
-        with tracer.start_as_current_span("confirm_reminder"):
-            user = await db.get(User, user_id)
-            try:
-                return await debt_collection.confirm_reminder(db, user, reminder_id, not_before=started)
-            except debt_collection.ReminderRefused as e:
-                return {"error": str(e)}
+        user = await db.get(User, user_id)
+        try:
+            return await debt_collection.confirm_reminder(db, user, reminder_id, not_before=started)
+        except debt_collection.ReminderRefused as e:
+            return {"error": str(e)}
 
     @tool
     async def customer_statement_tool(
@@ -229,28 +213,26 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
         or supplier ("send me Mama Chidi statement", "wetin Emeka don buy and pay?", "show
         my account with Alhaji"). Returns a short text version and, if share_link is true,
         a private link to a printable statement the user can forward to that person."""
-        with tracer.start_as_current_span("customer_statement"):
-            user = await db.get(User, user_id)
-            try:
-                st = await statements.build_statement(db, user, party, start_date, end_date)
-            except statements.StatementError as e:
-                return {"error": str(e)}
-            result = {"statement": statements.as_text(st), "balance": st.balance_sentence()}
-            if share_link:
-                url = statements.link_url(await statements.share_link(db, user, st.party))
-                if url:
-                    result["link"] = url
-                    result["link_note"] = ("Anyone with this link can view this statement for 30 days. "
-                                           "It shows only dealings with this person.")
-            return result
+        user = await db.get(User, user_id)
+        try:
+            st = await statements.build_statement(db, user, party, start_date, end_date)
+        except statements.StatementError as e:
+            return {"error": str(e)}
+        result = {"statement": statements.as_text(st), "balance": st.balance_sentence()}
+        if share_link:
+            url = statements.link_url(await statements.share_link(db, user, st.party))
+            if url:
+                result["link"] = url
+                result["link_note"] = ("Anyone with this link can view this statement for 30 days. "
+                                       "It shows only dealings with this person.")
+        return result
 
     @tool
     async def stop_sharing_statement_tool(party: str) -> dict:
         """Use this when the user wants to withdraw statement links they shared for a person
         ("stop sharing Mama Chidi statement", "cancel that link")."""
-        with tracer.start_as_current_span("stop_sharing_statement"):
-            count = await statements.revoke_links(db, user_id, party)
-            return {"links_withdrawn": count}
+        count = await statements.revoke_links(db, user_id, party)
+        return {"links_withdrawn": count}
 
     @tool
     async def review_bank_alert_tool(alert_text: str) -> dict:
@@ -258,8 +240,7 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
         POS receipt (SMS/email/app text, or a "(forwarded alert screenshot)" message). Pass
         the alert text exactly as given. It either records a clear repayment itself, or
         returns a question to ask the user."""
-        with tracer.start_as_current_span("review_bank_alert"):
-            return await alerts.review_alert(db, user_id, alert_text)
+        return await alerts.review_alert(db, user_id, alert_text)
 
     @tool
     async def resolve_bank_alert_tool(
@@ -273,11 +254,10 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
         and party if known), "debt_repayment" (party = whose debt), "expense" (item = what
         for), "loan_taken"/"loan_given" (party), "already_recorded" (transaction_id = the
         entry it duplicates), or "ignore" (personal / not business money)."""
-        with tracer.start_as_current_span("resolve_bank_alert"):
-            try:
-                return await alerts.resolve_alert(db, user_id, alert_id, record_as, party, item, transaction_id)
-            except alerts.AlertError as e:
-                return {"error": str(e)}
+        try:
+            return await alerts.resolve_alert(db, user_id, alert_id, record_as, party, item, transaction_id)
+        except alerts.AlertError as e:
+            return {"error": str(e)}
 
     return [
         extract_transactions_tool, generate_report_tool, query_transactions_tool,

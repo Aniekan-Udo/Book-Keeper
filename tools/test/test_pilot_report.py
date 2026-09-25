@@ -89,7 +89,7 @@ async def test_out_of_credit_tells_traders_to_retry_not_that_it_broke(monkeypatc
     from tools import router
 
     class Broke:
-        async def ainvoke(self, _):
+        async def ainvoke(self, _, config=None):
             raise RuntimeError("(RESOURCE_EXHAUSTED): 402 RESOURCE_EXHAUSTED. Your prepayment credits are depleted.")
 
     monkeypatch.setattr(router, "create_agent", lambda **_: Broke())
