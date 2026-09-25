@@ -1,1 +1,13 @@
+# secrets are passed as environment variables, never baked into the image
 .env
+# the image builds its own Linux virtualenv; a host (e.g. Windows) one would overwrite it
+.venv
+.git
+.idea
+__pycache__/
+*.pyc
+.pytest_cache/
+*.log
+*.sqlite3
+test/
+tools/test/

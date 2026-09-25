@@ -1,0 +1,7 @@
+# Public entry point: automatic HTTPS (Let's Encrypt) for $DOMAIN, forwarding to the app.
+# Meta's webhook requires HTTPS. Caddy passes the Host header through unchanged (the app's
+# cross-site check relies on it) and sets X-Forwarded-For with the client's IP.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy api:8001
+}

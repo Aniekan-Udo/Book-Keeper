@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from authentication.auth import get_current_user
@@ -82,6 +83,16 @@ class MessageResponse(BaseModel):
 class ResolveClarificationRequest(BaseModel):
     transaction_id: int
     amount: float = Field(..., gt=0)
+
+
+@app.get("/health", include_in_schema=False)
+async def health(db: AsyncSession = Depends(get_db_session)):
+    """For uptime monitors: the app is serving and the database answers."""
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception:
+        return JSONResponse({"status": "database unavailable"}, status_code=503)
+    return {"status": "ok"}
 
 
 @app.get("/api/v1/me")

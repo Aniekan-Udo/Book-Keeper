@@ -7,6 +7,8 @@ is not part of the pytest suite — run it after changing the prompt or the mode
     uv run python -m tools.evals            # all cases
     uv run python -m tools.evals pidgin     # only cases whose name contains "pidgin"
 
+On a free-tier key, pace the calls: LLM_REQUESTS_PER_MINUTE=4 uv run python -m tools.evals
+
 Add a case whenever a real user message gets recorded wrong.
 """
 import asyncio
@@ -18,6 +20,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from db import Model, TransactionORM, User
+from tools import router
 from tools.assistant import respond
 
 USER_ID = 1
@@ -134,6 +137,9 @@ async def main(name_filter: str | None) -> int:
     cases = [c for c in CASES if not name_filter or name_filter in c.name]
     passed = 0
     for case in cases:
+        # each case stands alone: don't let an earlier provider hiccup (which opens the
+        # production circuit breaker) turn every later case into "temporarily unavailable"
+        router.llm_breaker.record_success()
         try:
             ok, detail = await run_case(case)
         except Exception as e:  # keep going so one provider hiccup doesn't hide the rest

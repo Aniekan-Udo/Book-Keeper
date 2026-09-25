@@ -145,7 +145,7 @@ and pre-login endpoints must not be dodgeable with a made-up cookie.
 ## 4. The LLM
 
 `llm.py` builds the chat model from `LLM_MODEL` (`provider:model`, default
-`google_genai:gemini-2.5-flash`) via LangChain's `init_chat_model`, so switching provider
+`google_genai:gemini-3.8-flash`) via LangChain's `init_chat_model`, so switching provider
 is a config change. `tools/router.py` runs the agent with a circuit breaker: after 3
 consecutive failures it fails fast for 2 minutes instead of making every user wait on
 timeouts. Provider rate limits surface as a 503 with a "try again shortly" message.

@@ -127,3 +127,8 @@ async def test_idempotent_retry_does_not_record_twice(new_browser, fake_llm, db_
     assert first.json() == second.json()
     count = (await db_session.execute(select(func.count()).select_from(TransactionORM))).scalar()
     assert count == 1
+
+
+async def test_health_check(new_browser):
+    response = await (await new_browser()).get("/health")
+    assert response.status_code == 200 and response.json() == {"status": "ok"}
