@@ -67,3 +67,34 @@ async def test_old_activity_is_outside_the_window(db):
     await say(db, 1, "cancel that", "Done.", ago=timedelta(days=30))
     report = await build_report(db, days=7)
     assert "Nothing flagged." in report and "(no activity)" in report
+
+
+# ---------- provider failures (seen for real on the first live runs) ----------
+
+@pytest.mark.parametrize("message, expected", [
+    ("Error calling model 'gemini-3.8-flash' (RESOURCE_EXHAUSTED): 402 RESOURCE_EXHAUSTED. "
+     "{'error': {'code': 402, 'message': 'Your prepayment credits are depleted.'}}", "out_of_credit"),
+    ("Error calling model 'gemini-3.8-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED.", "rate_limited"),
+    ("503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand.'}}",
+     "overloaded"),
+    ("Error calling model: 400 INVALID_ARGUMENT. API key not valid.", None),
+    ("tool raised KeyError: 'amount'", None),
+])
+def test_provider_problems_are_classified(message, expected):
+    from utils import provider_problem
+    assert provider_problem(RuntimeError(message)) == expected
+
+
+async def test_out_of_credit_tells_traders_to_retry_not_that_it_broke(monkeypatch):
+    from tools import router
+
+    class Broke:
+        async def ainvoke(self, _):
+            raise RuntimeError("(RESOURCE_EXHAUSTED): 402 RESOURCE_EXHAUSTED. Your prepayment credits are depleted.")
+
+    monkeypatch.setattr(router, "create_agent", lambda **_: Broke())
+    monkeypatch.setattr(router, "get_chat_model", lambda: None)
+    router.llm_breaker.record_success()
+    with pytest.raises(router.LLMUnavailable, match="busy"):
+        await router.handle_message("I sold rice", "prompt", [])
+    router.llm_breaker.record_success()

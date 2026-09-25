@@ -16,10 +16,13 @@ mistake twice a week and fix it.
 ## Part A — Set up (you, ~1 day)
 
 ### 1. Google: turn on billing
-The free tier allows **5 model requests per minute for everyone combined**; one trader
-message uses 2–3. That's not enough for a pilot.
+The free tier allows **5 model requests per minute and 20 per day**; one trader message
+uses 2–3. That's not enough even for testing.
 
 - In Google AI Studio → your project → set up billing (moves the key to the paid tier).
+- On **prepaid** billing, add credit and keep it topped up: when it runs out, Google refuses
+  every call (402). Traders then get "busy, try again shortly", and the server log says
+  `account credit is used up. Top up billing now.`
 - Set a **budget alert** in Google Cloud Billing (e.g. $20/month) so there are no surprises.
 - Flash models cost a fraction of a cent per message; 5 traders will cost very little.
   Check the current Gemini pricing page for the exact rate.

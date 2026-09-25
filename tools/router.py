@@ -3,7 +3,7 @@ import time
 from langchain.agents import create_agent
 
 from llm import get_chat_model
-from utils import logger, is_rate_limit_error
+from utils import logger, provider_problem
 
 
 class LLMUnavailable(Exception):
@@ -58,11 +58,16 @@ async def handle_message(user_message: str, system_prompt: str, tools: list,
         result = await agent.ainvoke({"messages": messages})
     except Exception as e:
         llm_breaker.record_failure()
-        if is_rate_limit_error(e):
-            logger.warning("LLM provider rate-limited the request")
-            raise LLMUnavailable("The assistant is busy right now. Please try again shortly.") from e
-        logger.error(f"Agent invocation failed: {e}", exc_info=True)
-        raise
+        problem = provider_problem(e)
+        if problem == "out_of_credit":
+            # the operator must act: traders just see "busy"
+            logger.error("LLM provider refused the call: account credit is used up. Top up billing now.")
+        elif problem:
+            logger.warning(f"LLM provider unavailable: {problem}")
+        else:
+            logger.error(f"Agent invocation failed: {e}", exc_info=True)
+            raise
+        raise LLMUnavailable("The assistant is busy right now. Please try again shortly.") from e
 
     llm_breaker.record_success()
     return result

@@ -1,4 +1,5 @@
 import hashlib
+import re
 
 import structlog
 from fastapi import Request
@@ -52,9 +53,24 @@ async def store_response(db: AsyncSession, key: str, user_id: int, response: dic
     await db.commit()
 
 
-def is_rate_limit_error(exc: Exception) -> bool:
-    """Detects a 429/rate-limit error across providers by status code or exception class name,
-    without needing to import every provider's SDK-specific exception type."""
-    status_code = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
-    exc_type_name = type(exc).__name__
-    return status_code == 429 or exc_type_name in ("RateLimitError", "ResourceExhausted")
+_STATUS_IN_MESSAGE = re.compile(r"\b(402|429|503)\b")
+
+
+def provider_problem(exc: Exception) -> str | None:
+    """Classify an LLM provider failure that isn't our bug, across providers, without
+    importing each SDK's exception types. Checks the status code attributes and, since some
+    SDKs (e.g. langchain-google-genai) wrap errors, the status in the message too.
+
+    Returns "rate_limited" (429), "out_of_credit" (402: prepaid credit used up),
+    "overloaded" (503), or None."""
+    status = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+    if status is None:
+        match = _STATUS_IN_MESSAGE.search(str(exc))
+        status = int(match.group(1)) if match else None
+    if status == 402:
+        return "out_of_credit"
+    if status == 429 or type(exc).__name__ in ("RateLimitError", "ResourceExhausted"):
+        return "rate_limited"
+    if status == 503:
+        return "overloaded"
+    return None
