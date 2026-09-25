@@ -1,8 +1,9 @@
 import os
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Header, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from slowapi import _rate_limit_exceeded_handler
@@ -13,7 +14,7 @@ from authentication.auth import get_current_user
 from authentication.settings import settings
 from channels import whatsapp
 from db import User, get_db_session
-from endpoints import login, logout, refresh, registration, statements, whatsapp_auth
+from endpoints import login, logout, registration, statements, whatsapp_auth
 from tools.assistant import respond
 from tools.ledger import LedgerError, resolve_clarification
 from tools.router import LLMUnavailable
@@ -27,13 +28,48 @@ if settings.allowed_origins:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
-        allow_credentials=True,  # the refresh token travels as a cookie
+        allow_credentials=True,  # the session travels as a cookie
         allow_methods=["GET", "POST"],
-        allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+        allow_headers=["Content-Type", "Idempotency-Key"],
     )
 
-for module in (registration, login, refresh, logout, whatsapp, statements, whatsapp_auth):
+for module in (registration, login, logout, whatsapp, statements, whatsapp_auth):
     app.include_router(module.router)
+
+
+# ── CSRF ─────────────────────────────────────────────────────────────────────
+# Logins are cookies, which browsers attach even to requests another site triggers.
+# SameSite=Lax already stops most of that; this also refuses any state-changing request
+# whose Origin (or Referer) is a different site. Browsers always send Origin on cross-site
+# POSTs, so a missing one means a non-browser client (curl, tests), which is allowed.
+UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+CSRF_EXEMPT_PREFIXES = ("/webhooks/",)  # server-to-server from Meta, verified by signature
+
+
+def _request_origin(request: Request) -> str | None:
+    origin = request.headers.get("origin")
+    if origin is None and request.headers.get("referer"):
+        parts = urlsplit(request.headers["referer"])
+        origin = f"{parts.scheme}://{parts.netloc}"
+    return origin
+
+
+def is_same_site(request: Request) -> bool:
+    origin = _request_origin(request)
+    if origin is None:
+        return True
+    if origin == "null":  # sandboxed frames, some redirects — never our own page
+        return False
+    # compare hosts, not schemes: behind a TLS proxy the app itself sees plain http
+    return urlsplit(origin).netloc == request.headers.get("host") or origin in settings.allowed_origins
+
+
+@app.middleware("http")
+async def refuse_cross_site_writes(request: Request, call_next):
+    if (request.method in UNSAFE_METHODS and not request.url.path.startswith(CSRF_EXEMPT_PREFIXES)
+            and not is_same_site(request)):
+        return JSONResponse({"detail": "Cross-site request refused"}, status_code=403)
+    return await call_next(request)
 
 
 class MessageRequest(BaseModel):

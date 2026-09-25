@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import func, select
 
+from authentication.auth import SESSION_COOKIE
 from authentication.settings import settings
 from channels import onboarding
 from db import OnboardingSession, PhoneChallenge, User
@@ -132,10 +133,9 @@ async def test_log_in_with_whatsapp(client, sent, db_session):
     assert sent[-1][1] == phone_auth.LOGGED_IN_REPLY
 
     approved = (await client.post(f"/auth/whatsapp/challenges/{challenge['challenge_id']}")).json()
-    assert approved["status"] == "approved"
-    me = (await client.get("/api/v1/me", headers={"Authorization": f"Bearer {approved['access_token']}"})).json()
-    assert me["business_name"] == "Ada Provisions"
-    assert "refresh_token" in client.cookies
+    assert approved == {"status": "approved"}
+    assert SESSION_COOKIE in client.cookies  # the waiting page is now logged in
+    assert (await client.get("/api/v1/me")).json()["business_name"] == "Ada Provisions"
 
     # a login can only be collected once
     assert (await client.post(f"/auth/whatsapp/challenges/{challenge['challenge_id']}")).json() == {"status": "expired"}
@@ -195,56 +195,60 @@ async def test_logout_on_whatsapp_ends_web_sessions(client, sent):
     challenge = await start_login(client)
     await say(client, f"LOGIN {challenge['code']}")
     await client.post(f"/auth/whatsapp/challenges/{challenge['challenge_id']}")
-    assert (await client.post("/refresh")).status_code == 200
+    assert (await client.get("/api/v1/me")).status_code == 200
 
     await say(client, "logout")
 
     assert sent[-1][1].startswith("Done — you've been signed out")
-    assert (await client.post("/refresh")).status_code == 401
+    # immediately — not whenever a token would have run out
+    assert (await client.get("/api/v1/me")).status_code == 401
 
 
 # ---------- Connect WhatsApp to a web account ----------
 
-async def web_account(client, email="web@example.com"):
-    response = await client.post("/register", json={"firstname": "Bola", "lastname": "Ade", "email": email,
-                                                    "password": "a-strong-password", "business_name": "Bola Stores"})
-    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+async def web_account(new_browser, email="web@example.com"):
+    """A browser logged in to a new email/password account."""
+    browser = await new_browser()
+    response = await browser.post("/register", json={"firstname": "Bola", "lastname": "Ade", "email": email,
+                                                     "password": "a-strong-password", "business_name": "Bola Stores"})
+    assert response.status_code == 201, response.text
+    return browser
 
 
-async def test_connect_whatsapp_to_a_web_account(client, sent, agent):
-    headers = await web_account(client)
-    challenge = (await client.post("/auth/whatsapp/link", json={"phone": "08090001111"}, headers=headers)).json()
+async def test_connect_whatsapp_to_a_web_account(client, new_browser, sent, agent):
+    bola = await web_account(new_browser)
+    challenge = (await bola.post("/auth/whatsapp/link", json={"phone": "08090001111"})).json()
     assert challenge["message"].startswith("LINK ")
 
     await say(client, challenge["message"])
     assert "now connected to Bola Stores" in sent[-1][1]
-    assert (await client.post(f"/auth/whatsapp/challenges/{challenge['challenge_id']}")).json() == {"status": "approved"}
-    assert (await client.get("/api/v1/me", headers=headers)).json()["phone"] == "+" + NEW
+    assert (await bola.post(f"/auth/whatsapp/challenges/{challenge['challenge_id']}")).json() == {"status": "approved"}
+    assert (await bola.get("/api/v1/me")).json()["phone"] == "+" + NEW
 
     # and WhatsApp messages from that number now go into this account's books
     await say(client, "I sell rice 5k")
     assert agent.calls[-1]["message"] == "I sell rice 5k"
 
 
-async def test_cannot_connect_a_number_that_belongs_to_someone_else(client, sent, db_session):
+async def test_cannot_connect_a_number_that_belongs_to_someone_else(client, new_browser, sent, db_session):
     await sign_up_on_whatsapp(client)  # NEW already has its own account
-    headers = await web_account(client)
-    challenge = (await client.post("/auth/whatsapp/link", json={"phone": "08090001111"}, headers=headers)).json()
+    bola = await web_account(new_browser)
+    challenge = (await bola.post("/auth/whatsapp/link", json={"phone": "08090001111"})).json()
 
     await say(client, challenge["message"])
 
     assert sent[-1][1] == phone_auth.NUMBER_TAKEN_REPLY
-    assert (await client.post(f"/auth/whatsapp/challenges/{challenge['challenge_id']}")).json()["status"] == "rejected"
-    assert (await client.get("/api/v1/me", headers=headers)).json()["phone"] is None
+    assert (await bola.post(f"/auth/whatsapp/challenges/{challenge['challenge_id']}")).json()["status"] == "rejected"
+    assert (await bola.get("/api/v1/me")).json()["phone"] is None
 
 
-async def test_the_hijack_this_prevents(client, sent, agent, db_session):
+async def test_the_hijack_this_prevents(client, new_browser, sent, agent, db_session):
     """An attacker who knows a trader's number can start a LINK for it, but only a message
     from that phone completes it — so the trader's WhatsApp never feeds the attacker's books."""
-    attacker = await web_account(client, email="attacker@example.com")
-    challenge = (await client.post("/auth/whatsapp/link", json={"phone": "08090001111"}, headers=attacker)).json()
+    attacker = await web_account(new_browser, email="attacker@example.com")
+    challenge = (await attacker.post("/auth/whatsapp/link", json={"phone": "08090001111"})).json()
     await say(client, challenge["message"], sender=OTHER)  # attacker sends it from their own phone
-    assert (await client.get("/api/v1/me", headers=attacker)).json()["phone"] is None
+    assert (await attacker.get("/api/v1/me")).json()["phone"] is None
 
     await say(client, "hi")  # the real owner of the number just gets sign-up
     assert "What's the name of your business?" in sent[-1][1]

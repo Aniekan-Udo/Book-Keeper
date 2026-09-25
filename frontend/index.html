@@ -484,37 +484,15 @@
 
 <script>
   function getApiUrl() { return document.getElementById('api-url').value.replace(/\/$/, ''); }
-  // Access token lives in memory only; the refresh token is an httpOnly cookie the page can't read.
-  let accessToken = null;
-
-  async function refreshSession() {
-    try {
-      const res = await fetch(getApiUrl() + '/refresh', { method: 'POST', credentials: 'include' });
-      if (!res.ok) return false;
-      accessToken = (await res.json()).access_token;
-      return true;
-    } catch { return false; }
-  }
-
-  // fetch with the access token; on 401, refresh once and retry, else send the user to log in
+  // Being logged in is an httpOnly session cookie: the page never sees it, the browser
+  // just sends it along. A 401 means the session ended, so show the login screen.
   async function apiFetch(path, options = {}) {
-    const send = () => fetch(getApiUrl() + path, {
-      ...options,
-      credentials: 'include',
-      headers: { ...(options.headers || {}), ...(accessToken ? { Authorization: 'Bearer ' + accessToken } : {}) },
-    });
-    let res = await send();
-    if (res.status === 401) {
-      if (await refreshSession()) {
-        res = await send();
-      }
-      if (res.status === 401) showAuth('Your session has ended. Please log in again.');
-    }
+    const res = await fetch(getApiUrl() + path, { ...options, credentials: 'include' });
+    if (res.status === 401) showAuth('Your session has ended. Please log in again.');
     return res;
   }
 
   function showAuth(message = '') {
-    accessToken = null;
     document.getElementById('auth-error').textContent = message;
     document.getElementById('auth-overlay').hidden = false;
   }
@@ -549,7 +527,6 @@
         document.getElementById('auth-error').textContent = errorText(data.detail, 'Something went wrong. Please try again.');
         return;
       }
-      accessToken = data.access_token;
       await enterApp();
     } catch {
       document.getElementById('auth-error').textContent = 'Could not reach the server.';
@@ -651,7 +628,7 @@
     document.getElementById('auth-error').textContent = '';
     return runChallenge(document.getElementById('wa-login-challenge'), document.getElementById('wa-login-form'),
       '/auth/whatsapp/login', document.getElementById('wa-login-phone').value.trim(), false,
-      async result => { accessToken = result.access_token; await enterApp(); });
+      async () => { await enterApp(); });
   }
 
   function submitConnectWhatsApp(event) {
@@ -898,11 +875,9 @@
     if (body) body.classList.toggle('open');
   }
 
-  // show WhatsApp options if the server has WhatsApp set up, then resume an existing
-  // session from the refresh cookie, otherwise ask to log in
-  loadWhatsAppInfo()
-    .then(() => refreshSession())
-    .then(ok => ok ? enterApp() : showAuth());
+  // show WhatsApp options if the server has WhatsApp set up, then carry on with the
+  // existing session if there is one (enterApp shows the login screen if not)
+  loadWhatsAppInfo().then(() => enterApp());
 </script>
 </body>
 </html>

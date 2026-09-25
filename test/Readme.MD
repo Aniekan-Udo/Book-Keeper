@@ -17,12 +17,15 @@ TEST_DATABASE_URL="postgresql+asyncpg://test:test@localhost:5434/test_db" uv run
 
 ## Files
 
-- `conftest.py` — test DB engine/session (each test rolls back), `test_user`, `other_user`.
-- `test_auth_tokens.py` — password hashing and JWT creation/verification, no DB.
-- `test_refresh_token_storage.py` — storing, validating, revoking and rotating refresh tokens.
-- `test_login_refresh_logout.py` — the session lifecycle over HTTP.
+- `conftest.py` — test DB session (each test rolls back), a production-like `prod_session`,
+  `new_browser` (separate logged-in browsers, each with its own cookies), `test_user`,
+  and a guard that fails any test making a real network call.
+- `test_sessions.py` — passwords, server-side sessions (login, logout, expiry, instant
+  revocation, fixation), and the cross-site request (CSRF) check.
 - `test_bookkeeping_api.py` — registration, and that bookkeeping endpoints only ever act
-  for the user in the access token (LLM stubbed).
+  for the logged-in user (LLM stubbed).
+- `test_whatsapp*.py`, `test_voice_notes.py`, `test_debt_collection.py`, `test_statements.py`,
+  `test_bank_alerts.py`, `test_whatsapp_signup.py` — the WhatsApp channel and features.
 - `../tools/test/test_ledger.py` — the money rules: debt settlement, loans, reports,
   undo, corrections.
 

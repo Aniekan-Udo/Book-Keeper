@@ -34,10 +34,11 @@ A bookkeeper that gets the debt numbers wrong is worse than a notebook.
 
 ## Phase 2 — Safe to put in front of real users
 
-- [x] JWT auth on every bookkeeping endpoint (user from the token, never the body)
+- [x] Auth on every bookkeeping endpoint (user from the session, never the body) —
+      server-side sessions in an httpOnly cookie, with a CSRF origin check
 - [x] Working registration (business name, Nigerian phone normalized to +234), and
-      login/refresh/logout actually mounted in the app
-- [x] Web client: sign up / log in, silent token refresh, log out
+      login/logout actually mounted in the app
+- [x] Web client: sign up / log in, log out
 - [x] Payment-system leftovers removed (transfer, balance, step-up, unused models,
       dead scripts and endpoints)
 - [x] One LLM path chosen by config (`LLM_MODEL`); no key rotation; circuit breaker

@@ -10,18 +10,15 @@ is not part of the pytest suite — run it after changing the prompt or the mode
 Add a case whenever a real user message gets recorded wrong.
 """
 import asyncio
-import os
 import sys
 from dataclasses import dataclass, field
 
-os.environ.setdefault("SECRET_KEY", "evals-only")
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.pool import StaticPool
 
-from sqlalchemy import select  # noqa: E402
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker  # noqa: E402
-from sqlalchemy.pool import StaticPool  # noqa: E402
-
-from db import Model, TransactionORM, User  # noqa: E402
-from tools.assistant import respond  # noqa: E402
+from db import Model, TransactionORM, User
+from tools.assistant import respond
 
 USER_ID = 1
 

@@ -3,13 +3,14 @@
     POST /auth/whatsapp/login        {phone}  → code + wa.me link; no account needed to ask
     POST /auth/whatsapp/link         {phone}  → same, for the logged-in account (Connect WhatsApp)
     POST /auth/whatsapp/challenges/<id>       → pending / approved / rejected / expired;
-                                               an approved login returns a session, once
+                                               an approved login starts a session, once
 """
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
+from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from authentication.auth import get_current_user, issue_session
+from authentication.auth import get_current_user, start_session
 from authentication.settings import settings
 from db import User, get_db_session
 from tools import phone_auth
@@ -37,7 +38,7 @@ async def whatsapp_info():
 
 
 @router.post("/login")
-@limiter.limit("5/minute")
+@limiter.limit("5/minute", key_func=get_remote_address)
 async def start_login(request: Request, body: PhoneRequest, db: AsyncSession = Depends(get_db_session)):
     _require_whatsapp()
     try:
@@ -58,13 +59,13 @@ async def start_link(request: Request, body: PhoneRequest, db: AsyncSession = De
 
 
 @router.post("/challenges/{challenge_id}")
-@limiter.limit("60/minute")
+@limiter.limit("60/minute", key_func=get_remote_address)
 async def check_challenge(request: Request, challenge_id: str, response: Response,
                           db: AsyncSession = Depends(get_db_session)):
     result = await phone_auth.poll(db, challenge_id)
     if result["status"] == "approved" and result["purpose"] == "login":
-        session = await issue_session(db, response, result["user_id"])
-        return {"status": "approved", **session}
+        await start_session(db, request, response, result["user_id"])
+        return {"status": "approved"}
     if result["status"] == "approved":
         return {"status": "approved"}
     return result

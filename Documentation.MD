@@ -12,10 +12,10 @@ See `ROADMAP.md` for where the product is going.
 
 ```
 browser (frontend/index.html)
-   │  Bearer access token + httpOnly refresh cookie
+   │  httpOnly session cookie (server-side session)
    ▼
 FastAPI (main.py)
-   ├── endpoints/        register, login, refresh, logout
+   ├── endpoints/        register, login, logout, WhatsApp login/connect
    ├── /api/v1/message   ┐
    ├── /webhooks/whatsapp┴→ tools/assistant.py (memory) → tools/router.py: LLM agent (llm.py)
    └── /api/v1/clarify   → fill in a missing amount directly, no LLM
@@ -117,18 +117,28 @@ the user sends it to our WhatsApp number — no SMS provider or approved templat
   number has an account; that's only told to the number's owner, on WhatsApp.
 - Replying **LOGOUT** on WhatsApp signs the account out of every web session.
 
-**Sessions**, however you log in: a short-lived **access token** (JWT, default 30 min) in the body and set a
-  **refresh token** (JWT, 7 days, `httpOnly` cookie, stored by `jti` in `refresh_tokens`).
-- `POST /refresh` rotates the refresh token. Presenting an already-rotated token is
-  treated as theft: all the user's sessions are revoked.
-- `POST /logout` revokes the current refresh token and clears the cookie.
+**Sessions**, however you log in, are server-side (`authentication/auth.py`):
+- Logging in sets `bk_session`, a random token in an `httpOnly`, `SameSite=Lax` cookie
+  (`Secure` when `COOKIE_SECURE=true`). Page scripts can't read it. Only its SHA-256 is
+  stored (`sessions`), so a database leak doesn't hand out working logins.
+- A session lasts `SESSION_IDLE_DAYS` (30) without a visit, and `SESSION_MAX_DAYS` (90)
+  at most. Every login gets a fresh token and replaces the browser's previous session.
+- `POST /logout` deletes the session; WhatsApp LOGOUT deletes all of the user's. Both
+  take effect on the very next request — there are no tokens left to run out.
 
-Every bookkeeping endpoint depends on `get_current_user` (`authentication/auth.py`):
-the user is taken from the access token, **never** from the request body. Refresh tokens
-carry `type: "refresh"` and are rejected as access tokens.
+Every bookkeeping endpoint depends on `get_current_user`, which looks the session up on
+each request: the user comes from the session, **never** from the request body.
 
-Rate limits are per user when a valid token is present and per IP otherwise
-(`utils.user_or_ip_key`) — Nigerian mobile carriers put many users behind one IP.
+**CSRF.** Because logins are cookies, `main.py` refuses any POST/PUT/PATCH/DELETE whose
+`Origin` (or, failing that, `Referer`) is another site — on top of `SameSite=Lax`. A
+request with neither header (curl, server-to-server) is allowed; browsers always send
+`Origin` on cross-site writes. Same-site is judged by the `Host` header, so a reverse
+proxy must pass `Host` through unchanged (nginx: `proxy_set_header Host $host;`). Meta's
+webhook is exempt (it's verified by signature). Extra origins go in `ALLOWED_ORIGINS`.
+
+Rate limits are per session for logged-in endpoints and per IP for everything before
+login (`utils.user_or_ip_key`) — Nigerian mobile carriers put many users behind one IP,
+and pre-login endpoints must not be dodgeable with a made-up cookie.
 
 ---
 
@@ -327,7 +337,7 @@ doesn't record a sale twice.
 ## 7. Running it
 
 ```bash
-cp .env.example .env         # fill in SECRET_KEY, GOOGLE_API_KEY, Postgres credentials
+cp .env.example .env         # fill in GOOGLE_API_KEY, Postgres credentials, WhatsApp settings
 docker compose up --build    # runs migrate.py, then serves on :8001
 ```
 
@@ -360,7 +370,7 @@ TEST_DATABASE_URL=postgresql+asyncpg://... uv run pytest   # against Postgres
 
 ## 8. Production checklist
 
-- `SECRET_KEY` from a secrets manager, unique per environment.
+- Secrets (API keys, WhatsApp token/app secret, DB password) from a secrets manager.
 - `COOKIE_SECURE=true` (HTTPS).
 - `ALLOWED_ORIGINS` only if the web client is on another origin.
 - A paid LLM quota sized for traffic (the circuit breaker is not a substitute).

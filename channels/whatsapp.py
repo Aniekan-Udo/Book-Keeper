@@ -23,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from authentication.auth import TokenData, revoke_all_user_tokens
+from authentication.auth import end_all_sessions
 from authentication.settings import settings
 from channels import onboarding
 from channels.whatsapp_api import (  # noqa: F401 (re-exported for callers and tests)
@@ -227,7 +227,7 @@ async def _process_inbound(message: dict) -> None:
             return
 
         if typed.strip().lower().rstrip(".!") in LOGOUT_WORDS:
-            await revoke_all_user_tokens(db, TokenData(user_id=str(user_id)))
+            await end_all_sessions(db, user_id)
             await send_text(wa_from, LOGGED_OUT_REPLY)
             return
 

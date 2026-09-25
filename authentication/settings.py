@@ -11,10 +11,9 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",  # don't error on keys this class doesn't define
     )
-    SECRET_KEY: SecretStr
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-    ALGORITHM: str = 'HS256'
+    # server-side sessions: a login lasts while it's used, up to a hard limit
+    SESSION_IDLE_DAYS: int = 30        # signed out after this long without a visit
+    SESSION_MAX_DAYS: int = 90         # signed out after this long regardless
     # must be True in production (HTTPS); False only so local http:// dev works
     COOKIE_SECURE: bool = False
     # comma-separated origins allowed to call the API cross-origin; empty = same-origin only

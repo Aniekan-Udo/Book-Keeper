@@ -9,8 +9,6 @@ import os
 import asyncio
 import tempfile
 
-# settings are read at import time, so test defaults must be in place before importing the app
-os.environ.setdefault("SECRET_KEY", "test-only-secret-key-not-for-production")
 import pytest
 import pytest_asyncio
 from sqlalchemy import event
@@ -147,3 +145,28 @@ def no_real_network(monkeypatch):
             super().__init__(*args, **kwargs)
 
     monkeypatch.setattr(httpx, "AsyncClient", GuardedAsyncClient)
+
+
+@pytest_asyncio.fixture
+async def new_browser(db_session):
+    """Factory for separate browsers (each with its own cookie jar, i.e. its own login)
+    talking to the app on the test database: `ada = await new_browser()`."""
+    from httpx import AsyncClient, ASGITransport
+    from main import app as fastapi_app
+    from db import get_db_session
+
+    async def override_get_db():
+        yield db_session
+
+    fastapi_app.dependency_overrides[get_db_session] = override_get_db
+    clients = []
+
+    async def make():
+        client = AsyncClient(transport=ASGITransport(app=fastapi_app), base_url="http://test")
+        clients.append(client)
+        return client
+
+    yield make
+    for client in clients:
+        await client.aclose()
+    fastapi_app.dependency_overrides.clear()

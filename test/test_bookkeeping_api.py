@@ -1,31 +1,20 @@
 """
 HTTP-level tests for registration and the authenticated bookkeeping endpoints.
 The LLM is stubbed: these check who can touch which books, not the model.
+Each user gets their own browser (cookie jar) from the `new_browser` fixture.
 """
 import pytest
-import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
 from langchain_core.messages import AIMessage
+from sqlalchemy import func, select
 
-import main
+from authentication.auth import SESSION_COOKIE
+from db import TransactionORM
 from tools import router
-from db import get_db_session
 
 SIGNUP = {
     "firstname": "Ada", "lastname": "Obi", "email": "Ada@Example.com",
     "password": "a-strong-password", "business_name": "Ada Provisions",
 }
-
-
-@pytest_asyncio.fixture
-async def client(db_session):
-    async def override_get_db():
-        yield db_session
-
-    main.app.dependency_overrides[get_db_session] = override_get_db
-    async with AsyncClient(transport=ASGITransport(app=main.app), base_url="http://test") as ac:
-        yield ac
-    main.app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -43,40 +32,43 @@ def fake_llm(monkeypatch):
     return queued
 
 
-async def signup(client, **overrides) -> dict:
-    response = await client.post("/register", json={**SIGNUP, **overrides})
+async def signed_up(new_browser, **overrides):
+    """A browser that has just signed up (and so is logged in)."""
+    browser = await new_browser()
+    response = await browser.post("/register", json={**SIGNUP, **overrides})
     assert response.status_code == 201, response.text
-    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+    return browser
 
 
 # ---------- Registration ----------
 
-async def test_register_logs_in_and_normalizes_details(client):
-    headers = await signup(client)
-    me = (await client.get("/api/v1/me", headers=headers)).json()
+async def test_register_logs_in_and_normalizes_details(new_browser):
+    ada = await signed_up(new_browser)
+    me = (await ada.get("/api/v1/me")).json()
     assert me["email"] == "ada@example.com"
     assert me["phone"] is None  # connected later, by proving it from WhatsApp
     assert me["business_name"] == "Ada Provisions"
-    assert "refresh_token" in client.cookies
+    assert SESSION_COOKIE in ada.cookies
 
 
-async def test_register_duplicate_email_is_rejected_case_insensitively(client):
-    await signup(client)
-    response = await client.post("/register", json={**SIGNUP, "email": "ADA@example.com"})
+async def test_register_duplicate_email_is_rejected_case_insensitively(new_browser):
+    await signed_up(new_browser)
+    other = await new_browser()
+    response = await other.post("/register", json={**SIGNUP, "email": "ADA@example.com"})
     assert response.status_code == 409
 
 
-async def test_web_signup_cannot_claim_a_phone_number(client):
+async def test_web_signup_cannot_claim_a_phone_number(new_browser):
     """Security: a phone number decides whose books WhatsApp messages go into, so it must
     never come from a web form — only from proof sent from that WhatsApp number."""
-    headers = await signup(client, phone="0803 123 4567")
-    me = (await client.get("/api/v1/me", headers=headers)).json()
-    assert me["phone"] is None
+    ada = await signed_up(new_browser, phone="0803 123 4567")
+    assert (await ada.get("/api/v1/me")).json()["phone"] is None
 
 
-async def test_login_is_case_insensitive_on_email(client):
-    await signup(client)
-    response = await client.post("/login", json={"email": "ADA@EXAMPLE.COM", "password": SIGNUP["password"]})
+async def test_login_is_case_insensitive_on_email(new_browser):
+    await signed_up(new_browser)
+    browser = await new_browser()
+    response = await browser.post("/login", json={"email": "ADA@EXAMPLE.COM", "password": SIGNUP["password"]})
     assert response.status_code == 200
 
 
@@ -86,65 +78,52 @@ async def test_login_is_case_insensitive_on_email(client):
     ("/api/v1/message", {"message": "I sold rice"}),
     ("/api/v1/clarify", {"transaction_id": 1, "amount": 5000}),
 ])
-async def test_bookkeeping_endpoints_reject_anonymous_requests(client, path, body):
-    response = await client.post(path, json=body)
+async def test_bookkeeping_endpoints_reject_anonymous_requests(new_browser, path, body):
+    response = await (await new_browser()).post(path, json=body)
     assert response.status_code == 401
 
 
-async def test_bookkeeping_endpoints_reject_refresh_token_as_access_token(client):
-    await signup(client)
-    refresh_token = client.cookies["refresh_token"]
-    response = await client.get("/api/v1/me", headers={"Authorization": f"Bearer {refresh_token}"})
-    assert response.status_code == 401
+async def test_made_up_session_cookie_is_rejected(new_browser):
+    browser = await new_browser()
+    browser.cookies.set(SESSION_COOKIE, "not-a-real-session")
+    assert (await browser.get("/api/v1/me")).status_code == 401
 
 
-async def test_user_id_in_body_is_ignored(client, fake_llm):
-    ada = await signup(client)
-    await signup(client, email="bola@example.com")
+async def test_user_id_in_body_is_ignored(new_browser, fake_llm):
+    ada = await signed_up(new_browser)
+    await signed_up(new_browser, email="bola@example.com")
 
     fake_llm.append({"type": "sale", "direction": "in", "party": "Emeka", "item": "rice"})
-    response = await client.post("/api/v1/message", json={"message": "I sold rice", "user_id": 2}, headers=ada)
+    response = await ada.post("/api/v1/message", json={"message": "I sold rice", "user_id": 2})
     assert response.status_code == 200
     txn_id = response.json()["clarifications"][0]["transaction_id"]
 
-    # the entry belongs to Ada (the token), so Ada can fill in the amount...
-    ok = await client.post("/api/v1/clarify", json={"transaction_id": txn_id, "amount": 5000}, headers=ada)
+    # the entry belongs to Ada (the session), so Ada can fill in the amount
+    ok = await ada.post("/api/v1/clarify", json={"transaction_id": txn_id, "amount": 5000})
     assert ok.status_code == 200
     assert "₦5,000.00" in ok.json()["reply"]
 
 
-async def test_cannot_clarify_another_users_transaction(client, fake_llm):
-    ada = await signup(client)
-    bola = await signup(client, email="bola@example.com")
+async def test_cannot_clarify_another_users_transaction(new_browser, fake_llm):
+    ada = await signed_up(new_browser)
+    bola = await signed_up(new_browser, email="bola@example.com")
 
     fake_llm.append({"type": "sale", "direction": "in", "party": "Emeka", "item": "rice"})
-    response = await client.post("/api/v1/message", json={"message": "I sold rice"}, headers=ada)
+    response = await ada.post("/api/v1/message", json={"message": "I sold rice"})
     txn_id = response.json()["clarifications"][0]["transaction_id"]
 
-    stolen = await client.post("/api/v1/clarify", json={"transaction_id": txn_id, "amount": 1}, headers=bola)
+    stolen = await bola.post("/api/v1/clarify", json={"transaction_id": txn_id, "amount": 1})
     assert stolen.status_code == 404
 
 
-async def test_idempotent_retry_does_not_record_twice(client, fake_llm, db_session):
-    ada = await signup(client)
+async def test_idempotent_retry_does_not_record_twice(new_browser, fake_llm, db_session):
+    ada = await signed_up(new_browser)
     fake_llm.append({"type": "expense", "direction": "out", "item": "fuel", "amount": 20000})
-    headers = {**ada, "Idempotency-Key": "retry-123"}
+    headers = {"Idempotency-Key": "retry-123"}
 
-    first = await client.post("/api/v1/message", json={"message": "paid 20k fuel"}, headers=headers)
-    second = await client.post("/api/v1/message", json={"message": "paid 20k fuel"}, headers=headers)
+    first = await ada.post("/api/v1/message", json={"message": "paid 20k fuel"}, headers=headers)
+    second = await ada.post("/api/v1/message", json={"message": "paid 20k fuel"}, headers=headers)
 
     assert first.json() == second.json()
-    from sqlalchemy import select, func
-    from db import TransactionORM
     count = (await db_session.execute(select(func.count()).select_from(TransactionORM))).scalar()
     assert count == 1
-
-
-# ---------- Logout ----------
-
-async def test_logout_expires_cookie_on_the_path_it_was_set(client):
-    await signup(client)
-    response = await client.post("/logout")
-    set_cookie = response.headers["set-cookie"]
-    assert "refresh_token=" in set_cookie and "Path=/;" in set_cookie
-    assert "refresh_token" not in client.cookies

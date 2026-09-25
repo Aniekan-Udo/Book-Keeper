@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, EmailStr, Field
+from slowapi.util import get_remote_address
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from authentication.auth import hash_password, issue_session
+from authentication.auth import hash_password, start_session
 from db import get_db_session, User
 from utils import limiter
 
@@ -22,7 +23,7 @@ class Registration(BaseModel):
 
 
 @router.post("/register", status_code=201, tags=["registration"])
-@limiter.limit("5/minute")
+@limiter.limit("5/minute", key_func=get_remote_address)
 async def register(request: Request, reg: Registration, response: Response,
                    db: AsyncSession = Depends(get_db_session)):
     email = reg.email.lower()
@@ -45,4 +46,4 @@ async def register(request: Request, reg: Registration, response: Response,
         raise HTTPException(status_code=409, detail="Email already registered")
 
     # log straight in after signing up
-    return await issue_session(db, response, user_id)
+    return await start_session(db, request, response, user_id)

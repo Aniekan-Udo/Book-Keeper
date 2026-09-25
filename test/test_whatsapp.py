@@ -252,9 +252,8 @@ async def test_old_conversation_is_forgotten(client, ada, agent, sent, db_sessio
 
 async def test_web_and_whatsapp_share_memory(client, ada, agent, sent):
     await post_signed(client, payload(text_message("I sell rice to Emeka")))
-    login = await client.post("/login", json={"email": "ada@example.com", "password": "x" * 10})
-    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
-    await client.post("/api/v1/message", json={"message": "15k"}, headers=headers)
+    await client.post("/login", json={"email": "ada@example.com", "password": "x" * 10})  # session cookie
+    await client.post("/api/v1/message", json={"message": "15k"})
     assert agent.calls[1]["history"][0]["content"] == "I sell rice to Emeka"
 
 

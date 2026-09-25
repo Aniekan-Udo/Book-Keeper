@@ -1,168 +1,108 @@
-import uuid
-from datetime import timedelta, datetime, timezone
+"""Passwords and server-side sessions.
 
-from fastapi import HTTPException, Response, status, Depends
-from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, ExpiredSignatureError, jwt
+A login is a random token in an httpOnly cookie; the server keeps only its SHA-256 in
+`sessions`. Every request looks the session up, so logging out — here, or by replying
+LOGOUT on WhatsApp — takes effect on the very next request. Page scripts can't read the
+cookie, and CSRF is handled by SameSite=Lax plus the Origin check in `main.py`.
+"""
+import hashlib
+import secrets
+from datetime import datetime, timedelta, timezone
+
+from fastapi import Depends, HTTPException, Request, Response, status
 from pwdlib import PasswordHash
-from pydantic import BaseModel
-from sqlalchemy import select, delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from authentication.settings import settings
-from db import RefreshToken, User, get_db_session
+from db import User, UserSession, get_db_session
 
 password_hash = PasswordHash.recommended()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
-REFRESH_COOKIE = "refresh_token"
+SESSION_COOKIE = "bk_session"
+# don't write last_seen_at on every request; once an hour is plenty for a 30-day idle limit
+TOUCH_INTERVAL = timedelta(hours=1)
+
 
 def hash_password(password):
     """ Hash a plain password """
     return password_hash.hash(password)
 
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """ Verify a plain password against a hashed password """
     return password_hash.verify(plain_password, hashed_password)
 
-def create_access_token(data: dict, expires_delta : timedelta | None = None):
-    """ Create an access token """
-    to_encode = data.copy()
 
-    if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
-    else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes= settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-
-    to_encode.update({"exp": expire, "jti": str(uuid.uuid4())})
-
-    encode_jwt =jwt.encode(to_encode, settings.SECRET_KEY.get_secret_value(), algorithm=settings.ALGORITHM)
-
-    return encode_jwt
-
-def create_refresh_token(data: dict, expires_delta : timedelta | None = None):
-    """ Create a refresh token """
-    to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS))
-    jti = str(uuid.uuid4())
-    to_encode.update({"exp": expire, "type": "refresh", "jti": jti})
-    token = jwt.encode(to_encode, settings.SECRET_KEY.get_secret_value(), algorithm=settings.ALGORITHM)
-    return token, jti
-
-def verify_token(token: str):
-    try:
-        payload = jwt.decode(token, settings.SECRET_KEY.get_secret_value(), algorithms=[settings.ALGORITHM])
-        if payload.get("type") is not None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
-        user_id: str = payload.get("sub")
-        if user_id is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
-
-        return user_id
-
-    except ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token expired. Please log in again",
-            headers={"WWW-Authenticate": "Bearer"}
-        )
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+def token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
-class TokenData(BaseModel):
-    user_id: str
-    expires_delta: timedelta | None = None
-    jti: str = None
+def _aware(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)  # SQLite drops tzinfo; values are UTC
 
-async def store_refresh_token(db: AsyncSession, data: TokenData):
-    """ Store a refresh token """
-    token_row = RefreshToken(
-        user_id=int(data.user_id),
-        jti=data.jti,
-        expires_at=datetime.now(timezone.utc) + data.expires_delta,
-    )
-    db.add(token_row)
+
+def session_expired(session: UserSession, now: datetime) -> bool:
+    return (now - _aware(session.last_seen_at) > timedelta(days=settings.SESSION_IDLE_DAYS)
+            or now - _aware(session.created_at) > timedelta(days=settings.SESSION_MAX_DAYS))
+
+
+async def start_session(db: AsyncSession, request: Request, response: Response, user_id: int) -> dict:
+    """Log this browser in as `user_id`: a fresh token every time (no session fixation),
+    replacing any session the browser already had."""
+    old = request.cookies.get(SESSION_COOKIE)
+    if old:
+        await db.execute(delete(UserSession).where(UserSession.token_hash == token_hash(old)))
+    token = secrets.token_urlsafe(32)
+    db.add(UserSession(token_hash=token_hash(token), user_id=user_id))
     await db.commit()
-    return token_row
-
-async def is_refresh_token_valid(db: AsyncSession, data: TokenData):
-    """ Check if a refresh token is valid """
-    result = await db.execute(
-        select(RefreshToken).where(
-            RefreshToken.user_id == int(data.user_id),
-            RefreshToken.jti == data.jti,
-        )
-    )
-    token_row = result.scalar_one_or_none()
-    if token_row is None:
-        return False
-    if token_row.revoked:
-        return False
-    expires_at = token_row.expires_at
-    if expires_at.tzinfo is None:  # SQLite drops tzinfo; stored values are always UTC
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    if expires_at < datetime.now(timezone.utc):
-        return False
-
-    return True
-
-async def revoke_refresh_token(db: AsyncSession, data: TokenData):
-    """ Revoke a refresh token """
-    result = await db.execute(
-        select(RefreshToken).where(
-            RefreshToken.user_id == int(data.user_id),
-            RefreshToken.jti == data.jti,
-        )
-    )
-    token_row = result.scalar_one_or_none()
-    if token_row is None:
-        return
-
-    await db.delete(token_row)
-    await db.commit()
-
-
-async def revoke_all_user_tokens(db: AsyncSession, data: TokenData):
-    """ Revoke all refresh tokens for a user """
-    await db.execute(
-        delete(RefreshToken).where(RefreshToken.user_id == int(data.user_id))
-    )
-    await db.commit()
-
-
-async def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: AsyncSession = Depends(get_db_session),
-) -> User:
-    """The authenticated user for this request. Identity only ever comes from the
-    access token — never from a user_id in the request body."""
-    user_id = verify_token(token)
-    user = await db.get(User, int(user_id)) if str(user_id).isdigit() else None
-    if user is None:
-        # token outlived the account
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials",
-                            headers={"WWW-Authenticate": "Bearer"})
-    return user
-
-
-async def issue_session(db: AsyncSession, response: Response, user_id: int) -> dict:
-    """Create an access token + a stored, rotating refresh token (set as an httpOnly cookie)."""
-    access_token = create_access_token({"sub": str(user_id)})
-    refresh_token, jti = create_refresh_token({"sub": str(user_id)})
-    lifetime = timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    await store_refresh_token(db, TokenData(user_id=str(user_id), jti=jti, expires_delta=lifetime))
     response.set_cookie(
-        key=REFRESH_COOKIE, value=refresh_token, httponly=True,
-        secure=settings.COOKIE_SECURE, samesite="lax", max_age=int(lifetime.total_seconds()), path="/",
+        key=SESSION_COOKIE, value=token, httponly=True, secure=settings.COOKIE_SECURE, samesite="lax",
+        max_age=settings.SESSION_MAX_DAYS * 24 * 60 * 60, path="/",
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"logged_in": True}
 
 
-def clear_session_cookie(response: Response) -> None:
-    # path must match the one used in issue_session or the browser keeps the cookie
-    response.delete_cookie(key=REFRESH_COOKIE, path="/")
+async def end_session(db: AsyncSession, request: Request, response: Response) -> None:
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        await db.execute(delete(UserSession).where(UserSession.token_hash == token_hash(token)))
+        await db.commit()
+    # path must match start_session's or the browser keeps the cookie
+    response.delete_cookie(key=SESSION_COOKIE, path="/")
+
+
+async def end_all_sessions(db: AsyncSession, user_id: int) -> int:
+    result = await db.execute(delete(UserSession).where(UserSession.user_id == user_id))
+    await db.commit()
+    return result.rowcount
+
+
+def _unauthorized() -> HTTPException:
+    return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not logged in")
+
+
+async def get_current_user(request: Request, db: AsyncSession = Depends(get_db_session)) -> User:
+    """The logged-in user for this request, from the session cookie — never from anything
+    in the request body."""
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        raise _unauthorized()
+    row = (await db.execute(
+        select(UserSession, User)
+        .join(User, User.id == UserSession.user_id)
+        .where(UserSession.token_hash == token_hash(token))
+    )).first()
+    if row is None:
+        raise _unauthorized()
+    session, user = row
+    now = datetime.now(timezone.utc)
+    if session_expired(session, now):
+        await db.delete(session)
+        await db.commit()
+        raise _unauthorized()
+    if now - _aware(session.last_seen_at) > TOUCH_INTERVAL:
+        session.last_seen_at = now
+        await db.commit()
+        await db.refresh(user)  # the commit expired it; callers read its attributes
+    return user
