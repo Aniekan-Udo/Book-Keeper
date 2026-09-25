@@ -226,6 +226,28 @@ Reminders come from the Book-Keeper number, not the trader's own, which is why t
 business name is in the message. Keep the cooldown and cap conservative: users blocking
 or reporting the number lowers its quality rating and can get it restricted.
 
+### Customer statements (`tools/statements.py`, `endpoints/statements.py`)
+
+"Send me Mama Chidi statement" builds a statement of account between the trader and
+one person: every sale, loan, supplied good and payment with them in date order, with a
+running balance and the promised due date on each debt. The balance is "what they owe
+the trader" — negative when the trader owes them (suppliers). A start date brings the
+earlier balance forward. Payments made on the spot are shown separately from later
+repayments (upfront = `amount_paid` − repayment allocations), and the closing balance
+always equals the ledger's open balances for that person (tested as an invariant).
+
+The assistant replies with a short text version for forwarding and a private link,
+`/s/<token>`, to a printable page:
+
+- token from `secrets.token_urlsafe(24)`; one active link per person, reused and
+  extended; expires after 30 days; "stop sharing Mama Chidi statement" revokes it;
+- the page shows only that person's dealings, rendered live (always current);
+- everything the trader typed is HTML-escaped; `noindex`, `no-store`, `no-referrer`;
+  rate-limited; unknown/expired/revoked tokens get the same plain 404;
+- no way to pay on it — a record, not a payment request (the app never touches money).
+
+Links need `APP_PUBLIC_URL`; without it the assistant still gives the text version.
+
 ## 6. Idempotency
 
 `/api/v1/message` accepts an `Idempotency-Key` header. The response is stored in

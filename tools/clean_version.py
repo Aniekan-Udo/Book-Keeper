@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import GenerateDate
 from db import TransactionORM, User
 from monitoring import tracer
-from tools import debt_collection
+from tools import debt_collection, statements
 from tools.contacts import save_contact
 from tools.expenses import get_expenses
 from tools.formatting import format_naira
@@ -187,8 +187,9 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
         with tracer.start_as_current_span("save_contact"):
             try:
                 contact = await save_contact(db, user_id, name, phone)
+                result = {"saved": contact.name, "phone": contact.phone}  # read before commit expires it
                 await db.commit()
-                return {"saved": contact.name, "phone": contact.phone}
+                return result
             except ValueError as e:
                 await db.rollback()
                 return {"error": str(e)}
@@ -217,8 +218,43 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
             except debt_collection.ReminderRefused as e:
                 return {"error": str(e)}
 
+    @tool
+    async def customer_statement_tool(
+            party: str,
+            start_date: Optional[date_type] = None,
+            end_date: Optional[date_type] = None,
+            share_link: bool = True,
+    ) -> dict:
+        """Use this when the user wants a statement / record of everything with one customer
+        or supplier ("send me Mama Chidi statement", "wetin Emeka don buy and pay?", "show
+        my account with Alhaji"). Returns a short text version and, if share_link is true,
+        a private link to a printable statement the user can forward to that person."""
+        with tracer.start_as_current_span("customer_statement"):
+            user = await db.get(User, user_id)
+            try:
+                st = await statements.build_statement(db, user, party, start_date, end_date)
+            except statements.StatementError as e:
+                return {"error": str(e)}
+            result = {"statement": statements.as_text(st), "balance": st.balance_sentence()}
+            if share_link:
+                url = statements.link_url(await statements.share_link(db, user, st.party))
+                if url:
+                    result["link"] = url
+                    result["link_note"] = ("Anyone with this link can view this statement for 30 days. "
+                                           "It shows only dealings with this person.")
+            return result
+
+    @tool
+    async def stop_sharing_statement_tool(party: str) -> dict:
+        """Use this when the user wants to withdraw statement links they shared for a person
+        ("stop sharing Mama Chidi statement", "cancel that link")."""
+        with tracer.start_as_current_span("stop_sharing_statement"):
+            count = await statements.revoke_links(db, user_id, party)
+            return {"links_withdrawn": count}
+
     return [
         extract_transactions_tool, generate_report_tool, query_transactions_tool,
         undo_transaction_tool, correct_transaction_tool,
         save_contact_tool, remind_debtor_tool, confirm_reminder_tool,
+        customer_statement_tool, stop_sharing_statement_tool,
     ]

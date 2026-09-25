@@ -85,6 +85,25 @@ async def db_session(setup_test_db):
 
 
 @pytest_asyncio.fixture
+async def prod_session(setup_test_db):
+    """Like db_session, but with production's expire_on_commit=True. Reading an attribute
+    after a commit then fails the way it would in production (an async lazy-load), which
+    db_session hides. Use it to exercise code paths that commit."""
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
+    Session = async_sessionmaker(bind=engine, autoflush=False, expire_on_commit=True,
+                                 join_transaction_mode="create_savepoint")
+    async with engine.connect() as conn:
+        trans = await conn.begin()
+        session = Session(bind=conn)
+        try:
+            yield session
+        finally:
+            await session.close()
+            await trans.rollback()
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture
 async def test_user(db_session):
     """A persisted user with a known password, for login/auth tests."""
     user = User(

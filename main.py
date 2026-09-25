@@ -13,7 +13,7 @@ from authentication.auth import get_current_user
 from authentication.settings import settings
 from channels import whatsapp
 from db import User, get_db_session
-from endpoints import login, logout, refresh, registration
+from endpoints import login, logout, refresh, registration, statements
 from tools.assistant import respond
 from tools.ledger import LedgerError, resolve_clarification
 from tools.router import LLMUnavailable
@@ -32,7 +32,7 @@ if settings.allowed_origins:
         allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
     )
 
-for module in (registration, login, refresh, logout, whatsapp):
+for module in (registration, login, refresh, logout, whatsapp, statements):
     app.include_router(module.router)
 
 

@@ -4,6 +4,10 @@ Positioning: **the bookkeeper that gets Nigerian traders their money back.**
 Talk to it the way you talk (Pidgin, Yoruba, Hausa, Igbo, voice notes on
 WhatsApp); it keeps the books and chases the people who owe you.
 
+**Hard rule: the app never touches users' money.** It records, reports and reminds.
+No payments, transfers, wallets, payment links or collecting on anyone's behalf —
+every feature below stays on the right side of that line.
+
 The wedge is receivables ("who owe me?"). Everything below either makes that
 wedge trustworthy, or takes it somewhere competitors (Kippa, Bumpa, OZE, POS
 business accounts) don't go.
@@ -60,12 +64,14 @@ A bookkeeper that gets the debt numbers wrong is worse than a notebook.
    Next: a daily "who's overdue" nudge to the trader (needs a second approved
    template + a scheduler), Pidgin-language reminder template, and eval cases for
    the confirm-before-send conversation.
-4. **Customer ledger statements.** Shareable per-customer statement
-   ("see wetin you don buy and wetin you don pay").
+4. ✅ **Customer ledger statements.** Statement of account per customer or supplier
+   (running balance, due dates, brought-forward for a period), as forwardable text and
+   a private, expiring, revocable printable link. No payment on it — a record only.
 5. **Bank / POS alert ingestion.** Forward a Moniepoint / OPay / bank alert
-   and it's recorded (and matched to an open debt if possible).
-6. **Credit profile.** Export 3–6 months of books as a lender-ready summary —
-   path to partnerships with microfinance lenders.
+   and it's recorded (and matched to an open debt if possible). Read-only: we
+   parse what the user forwards; never connect to or act on their accounts.
+6. **Credit profile.** Export 3–6 months of books as a lender-ready summary that
+   the user shares with a lender themselves. We never lend, broker or move money.
 
 ## Phase 4 — Retention
 

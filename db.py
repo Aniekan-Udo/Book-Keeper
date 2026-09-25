@@ -192,6 +192,23 @@ class ReminderOptOut(Model):
     )
 
 
+class StatementLink(Model):
+    """An unguessable, expiring, revocable link to one customer's statement, for the
+    trader to share. Renders live data, so it's always current."""
+    __tablename__ = "statement_links"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("user.id"), nullable=False, index=True)
+    party: Mapped[str] = mapped_column(String(120), nullable=False)
+    party_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
 async def init_models():
     async with engine.begin() as conn:
         await conn.run_sync(Model.metadata.create_all)
