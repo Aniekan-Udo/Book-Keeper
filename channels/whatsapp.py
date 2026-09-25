@@ -23,17 +23,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from authentication.settings import settings
+from channels.whatsapp_api import (  # noqa: F401 (re-exported for callers and tests)
+    MAX_VOICE_BYTES, MediaTooLarge, _split, download_media, send_text,
+)
 from db import SessionLocal, User, WhatsAppInboundMessage, get_db_session
-from tools import transcribe as voice
+from tools import debt_collection, transcribe as voice
 from tools.assistant import respond
 from tools.router import LLMUnavailable
 from utils import logger
 
 router = APIRouter(prefix="/webhooks/whatsapp", tags=["whatsapp"])
 
-MAX_MESSAGE_CHARS = 4096  # WhatsApp's limit for one text message
-# ~2–3 minutes of WhatsApp voice (Opus, ~16 kbps); longer notes are rarely one transaction
-MAX_VOICE_BYTES = 400_000
 HEARD_PREVIEW_CHARS = 200
 
 
@@ -44,62 +44,6 @@ async def _new_session():
 
 # background work outlives the request's session, so it opens its own; tests swap this out
 session_factory = _new_session
-
-
-# ── outbound ─────────────────────────────────────────────────────────────────
-
-def _split(text: str, limit: int = MAX_MESSAGE_CHARS) -> list[str]:
-    chunks = []
-    while len(text) > limit:
-        cut = text.rfind("\n", 0, limit)
-        if cut <= 0:
-            cut = limit
-        chunks.append(text[:cut])
-        text = text[cut:].lstrip("\n")
-    return chunks + [text] if text else chunks
-
-
-async def send_text(to: str, body: str) -> None:
-    """Send a plain text message to a WhatsApp number (digits only, e.g. 2348031234567)."""
-    url = (f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/"
-           f"{settings.WHATSAPP_PHONE_NUMBER_ID}/messages")
-    async with httpx.AsyncClient(timeout=15) as client:
-        for chunk in _split(body):
-            response = await client.post(url, headers=_graph_headers(), json={
-                "messaging_product": "whatsapp",
-                "recipient_type": "individual",
-                "to": to,
-                "type": "text",
-                "text": {"preview_url": False, "body": chunk},
-            })
-            if response.status_code >= 400:
-                logger.error("WhatsApp send failed", status=response.status_code, body=response.text[:500])
-                return
-
-
-class MediaTooLarge(Exception):
-    pass
-
-
-def _graph_headers() -> dict:
-    return {"Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN.get_secret_value()}"}
-
-
-async def download_media(media_id: str, max_bytes: int = MAX_VOICE_BYTES) -> bytes:
-    """Fetch an inbound media file. Two steps: the media id resolves to a short-lived
-    URL, which must itself be fetched with the same access token."""
-    async with httpx.AsyncClient(timeout=30) as client:
-        meta = await client.get(f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{media_id}",
-                                headers=_graph_headers())
-        meta.raise_for_status()
-        info = meta.json()
-        if int(info.get("file_size") or 0) > max_bytes:
-            raise MediaTooLarge()
-        media = await client.get(info["url"], headers=_graph_headers())
-        media.raise_for_status()
-        if len(media.content) > max_bytes:
-            raise MediaTooLarge()
-        return media.content
 
 
 # ── inbound ──────────────────────────────────────────────────────────────────
@@ -176,11 +120,48 @@ def _with_heard(heard: str, reply: str) -> str:
     return f"🎤 “{heard}”\n\n{reply}"
 
 
+OPTED_OUT_REPLY = ("Done — you won't receive any more payment reminders from this number. "
+                   "For questions about a balance, please contact the business directly.")
+
+
+def debtor_auto_reply(business: str) -> str:
+    return (f"Thanks for your message. This number sends payment reminders for {business} and can't reply to "
+            f"messages. We've passed your message on to {business}. Reply STOP to stop these reminders.")
+
+
+async def _handle_reminder_recipient(db, wa_from: str, message: dict, registered: bool) -> bool:
+    """Replies from people who received a payment reminder. Returns True if handled."""
+    phone = "+" + wa_from
+    reminder = await debt_collection.latest_reminder_to(db, phone)
+    if reminder is None:
+        return False
+    text = message.get("text", {}).get("body", "") if message.get("type") == "text" else ""
+
+    if debt_collection.is_stop_request(text):
+        await debt_collection.opt_out(db, phone)
+        await send_text(wa_from, OPTED_OUT_REPLY)
+        return True
+    if registered:
+        return False  # a trader who also got a reminder: their messages are bookkeeping as usual
+
+    trader = await db.get(User, reminder.user_id)
+    business = debt_collection.business_name(trader)
+    await send_text(wa_from, debtor_auto_reply(business))
+    # pass it on, if WhatsApp lets us message the trader right now (24-hour window)
+    if trader.phone and await debt_collection.trader_reachable(db, trader.id):
+        said = f"“{text}”" if text else "a message I can't show here (voice note or media)"
+        await send_text(trader.phone.removeprefix("+"), f"💬 {reminder.party} replied to your reminder: {said}")
+    return True
+
+
 async def process_inbound(message: dict) -> None:
     """Answer one inbound WhatsApp message. Runs after the webhook has already returned 200."""
     wa_from = message["from"]
     async with session_factory() as db:
         user_id = (await db.execute(select(User.id).where(User.phone == "+" + wa_from))).scalar_one_or_none()
+
+        if await _handle_reminder_recipient(db, wa_from, message, registered=user_id is not None):
+            return
 
         if user_id is None:
             await send_text(wa_from, signup_message(wa_from))

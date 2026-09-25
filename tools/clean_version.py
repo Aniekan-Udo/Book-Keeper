@@ -1,4 +1,4 @@
-from datetime import date as date_type
+from datetime import date as date_type, datetime, timezone
 from typing import Optional, Literal
 
 from langchain_core.tools import tool
@@ -7,8 +7,10 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import GenerateDate
-from db import TransactionORM
+from db import TransactionORM, User
 from monitoring import tracer
+from tools import debt_collection
+from tools.contacts import save_contact
 from tools.expenses import get_expenses
 from tools.formatting import format_naira
 from tools.generate_PnL import generate_pnl
@@ -37,6 +39,7 @@ class Correction(BaseModel):
     unit: Optional[str] = None
     note: Optional[str] = None
     date: Optional[date_type] = None
+    due_date: Optional[date_type] = None
 
 
 _QUERY_LIMIT = 20
@@ -67,9 +70,12 @@ def _describe_for_user(r: TransactionORM) -> str:
 
 
 # ── factory: builds tools bound to a specific db session and user ──
-def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = None):
+def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = None,
+                request_started_at: datetime | None = None):
     """`clarifications`, if given, collects amount prompts raised during this request so the
-    endpoint can hand them to the client as structured data, not just reply text."""
+    endpoint can hand them to the client as structured data, not just reply text.
+    `request_started_at` stops a reminder drafted in this request from also being sent in it."""
+    started = request_started_at or datetime.now(timezone.utc)
 
     @tool
     async def extract_transactions_tool(transactions: list[TransactionInput]) -> dict:
@@ -173,7 +179,46 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
             except LedgerError as e:
                 return {"error": str(e)}
 
+    @tool
+    async def save_contact_tool(name: str, phone: str) -> dict:
+        """Use this when the user gives a customer's, borrower's or supplier's phone number
+        ("Mama Chidi number na 0803 123 4567"). Use the person's name exactly as the user
+        writes it elsewhere, so it matches their debts."""
+        with tracer.start_as_current_span("save_contact"):
+            try:
+                contact = await save_contact(db, user_id, name, phone)
+                await db.commit()
+                return {"saved": contact.name, "phone": contact.phone}
+            except ValueError as e:
+                await db.rollback()
+                return {"error": str(e)}
+
+    @tool
+    async def remind_debtor_tool(party: str) -> dict:
+        """Use this when the user wants to remind someone who owes them to pay ("remind
+        Mama Chidi", "tell Emeka make he pay"). This only prepares a draft: show the user
+        the recipient and message it returns, and ask them to confirm. It does not send."""
+        with tracer.start_as_current_span("remind_debtor"):
+            user = await db.get(User, user_id)
+            try:
+                return await debt_collection.draft_reminder(db, user, party)
+            except debt_collection.ReminderRefused as e:
+                return {"error": str(e)}
+
+    @tool
+    async def confirm_reminder_tool(reminder_id: int) -> dict:
+        """Send a reminder draft, ONLY after the user has seen it and said yes in a new
+        message ("yes", "send am", "ok go ahead"). Never call this in the same turn as
+        remind_debtor_tool, and never if the user said no or changed the subject."""
+        with tracer.start_as_current_span("confirm_reminder"):
+            user = await db.get(User, user_id)
+            try:
+                return await debt_collection.confirm_reminder(db, user, reminder_id, not_before=started)
+            except debt_collection.ReminderRefused as e:
+                return {"error": str(e)}
+
     return [
         extract_transactions_tool, generate_report_tool, query_transactions_tool,
         undo_transaction_tool, correct_transaction_tool,
+        save_contact_tool, remind_debtor_tool, confirm_reminder_tool,
     ]

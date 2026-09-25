@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy import MetaData, String, Date, Integer, Text, Float, ForeignKey, DateTime, Boolean, JSON, Numeric, Enum as SQLEnum
+from sqlalchemy import MetaData, String, Date, Integer, Text, Float, ForeignKey, DateTime, Boolean, JSON, Numeric, UniqueConstraint, Enum as SQLEnum
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -94,6 +94,8 @@ class TransactionORM(Model):
     )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     date: Mapped[date] = mapped_column(Date, nullable=False)
+    # when the other party promised to pay ("she go pay Friday"); drives overdue + reminders
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(
         SQLEnum("complete", "needs_amount", name="transaction_status"),
         nullable=False,
@@ -139,6 +141,53 @@ class WhatsAppInboundMessage(Model):
     wamid: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     wa_from: Mapped[str] = mapped_column(String(20), nullable=False)
     received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class Contact(Model):
+    """A trader's customer/supplier phone number, so reminders can reach them."""
+    __tablename__ = "contacts"
+    __table_args__ = (UniqueConstraint("user_id", "name_key", name="uq_contacts_user_id_name_key"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("user.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    # lower-cased, trimmed name — matches how debts are grouped by party
+    name_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    phone: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class Reminder(Model):
+    """A payment reminder to a debtor: drafted, shown to the trader, then sent on confirmation."""
+    __tablename__ = "reminders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("user.id"), nullable=False, index=True)
+    party: Mapped[str] = mapped_column(String(120), nullable=False)
+    phone: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    details: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        SQLEnum("draft", "sent", "failed", name="reminder_status"), nullable=False, default="draft"
+    )
+    wa_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ReminderOptOut(Model):
+    """Numbers that replied STOP. Checked before every reminder, from any trader."""
+    __tablename__ = "reminder_opt_outs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    phone: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
 

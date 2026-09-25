@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import TransactionORM
-from config import GenerateDate
+from config import GenerateDate, business_today
 from tools.formatting import format_naira, describe_period
 
 
@@ -30,7 +30,7 @@ def _entries(rows: list[TransactionORM]) -> list[dict]:
         {
             "id": r.id, "type": r.type, "party": r.party, "item": r.item,
             "amount": float(r.amount), "amount_paid": float(r.amount_paid),
-            "outstanding": float(r.outstanding), "date": r.date,
+            "outstanding": float(r.outstanding), "date": r.date, "due_date": r.due_date,
         }
         for r in rows
     ]
@@ -61,6 +61,12 @@ async def get_recievables(db: AsyncSession, dates: GenerateDate, user_id: int) -
             f"{period_desc.capitalize()}, you're owed {format_naira(total)} in total: "
             f"{_by_party(rows, 'unnamed customer')}."
         )
+        today = business_today()
+        overdue = [r for r in rows if r.due_date and r.due_date < today]
+        if overdue:
+            late = "; ".join(f"{r.party or 'unnamed'} {format_naira(r.outstanding)} "
+                             f"(due {r.due_date.strftime('%b %d')})" for r in sorted(overdue, key=lambda r: r.due_date))
+            summary += f" Overdue: {late}."
 
     return {
         "receivables": _entries(rows),

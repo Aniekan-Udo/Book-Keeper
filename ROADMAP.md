@@ -53,9 +53,13 @@ A bookkeeper that gets the debt numbers wrong is worse than a notebook.
    where needed, echoed back ("🎤 what I heard"), then handled like typed messages.
    Next: voice in the web app (browser audio needs converting from webm), and
    Yoruba/Hausa/Igbo eval cases from real recordings.
-3. **Debt collection loop.** Store debtor phone numbers; "remind Mama Chidi"
-   sends a polite WhatsApp reminder with the balance; scheduled nudges on
-   due dates ("she go pay Friday").
+3. ✅ **Debt collection loop.** Debtor phone numbers, promised due dates and overdue
+   tracking; "remind Mama Chidi" drafts a WhatsApp reminder the trader must confirm
+   in a later message; opt-out (STOP), per-debtor cooldown and daily cap enforced
+   server-side; debtor replies acknowledged and forwarded to the trader.
+   Next: a daily "who's overdue" nudge to the trader (needs a second approved
+   template + a scheduler), Pidgin-language reminder template, and eval cases for
+   the confirm-before-send conversation.
 4. **Customer ledger statements.** Shareable per-customer statement
    ("see wetin you don buy and wetin you don pay").
 5. **Bank / POS alert ingestion.** Forward a Moniepoint / OPay / bank alert

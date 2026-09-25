@@ -180,6 +180,52 @@ Proactive messages — debt reminders, weekly summaries — will need approved t
 
 ---
 
+### Debt collection (`tools/debt_collection.py`)
+
+**Data.** Debtor phone numbers live in `contacts` (per trader, keyed by the same
+normalised name used to group debts), saved from "Mama Chidi number na 0803…" or given
+alongside a sale. Promised payment dates are `due_date` on the entry ("she go pay
+Friday"); the receivables report calls out overdue debts.
+
+**Reminders.** "Remind Mama Chidi" drafts a reminder (`reminders`, status `draft`) and
+shows the trader the recipient and the exact message. It is sent only by
+`confirm_reminder_tool` in a *later* request — the server refuses to send a draft
+created during the current request, whatever the model does. Before drafting and again
+before sending, the server checks:
+
+- the debtor hasn't opted out (`reminder_opt_outs`, global across traders);
+- no reminder went to that number from this trader in the last `REMINDER_COOLDOWN_DAYS` (3);
+- the trader hasn't sent `REMINDER_DAILY_LIMIT` (20) in the last 24 hours;
+- at send time, the balance still matches the draft (if it was paid or changed, it isn't sent).
+
+Drafts expire after 30 minutes. Failed sends are recorded as `failed`.
+
+**Replies from debtors.** A number that has received a reminder and replies `STOP` is
+opted out for good. Any other reply gets an automatic acknowledgement, and is forwarded
+to the trader ("💬 Mama Chidi replied…") if the trader has messaged us on WhatsApp in
+the last 24 hours (WhatsApp won't allow it otherwise). Strangers still get the sign-up
+link.
+
+**The template.** Reminders go to people who never messaged the business number, so
+WhatsApp only allows an approved template. In Meta Business Manager → WhatsApp Manager →
+Message templates, create:
+
+| Field | Value |
+|---|---|
+| Category | Utility |
+| Name | `payment_reminder` (set `WHATSAPP_REMINDER_TEMPLATE` to whatever you choose) |
+| Language | English (`en`, or set `WHATSAPP_REMINDER_TEMPLATE_LANG`) |
+| Body | `Hello {{1}}, this is a friendly reminder from {{2}}. You have an outstanding balance of {{3}} for {{4}}. Please contact them to arrange payment. Thank you! Reply STOP to stop these reminders.` |
+| Samples | `Mama Chidi`, `Ada Provisions`, `₦5,000.00`, `3 crates egg (Sep 03)` |
+
+`REMINDER_TEMPLATE_TEXT` in `tools/debt_collection.py` must match the approved body —
+it's what the trader is shown before confirming. Until the template is set, reminders
+are off and the assistant says so.
+
+Reminders come from the Book-Keeper number, not the trader's own, which is why the
+business name is in the message. Keep the cooldown and cap conservative: users blocking
+or reporting the number lowers its quality rating and can get it restricted.
+
 ## 6. Idempotency
 
 `/api/v1/message` accepts an `Idempotency-Key` header. The response is stored in

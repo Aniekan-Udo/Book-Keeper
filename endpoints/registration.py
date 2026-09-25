@@ -1,5 +1,3 @@
-import re
-
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import select, or_, func
@@ -8,21 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from authentication.auth import hash_password, issue_session
 from db import get_db_session, User
+from tools.phones import normalize_nigerian_phone
 from utils import limiter
 
 router = APIRouter()
-
-
-def normalize_nigerian_phone(raw: str) -> str:
-    """Accepts 0803..., 234803..., +234 803 ... and returns E.164 (+234803...)."""
-    digits = re.sub(r"\D", "", raw)
-    if digits.startswith("234"):
-        digits = digits[3:]
-    elif digits.startswith("0"):
-        digits = digits[1:]
-    if len(digits) != 10:
-        raise ValueError("Enter a valid Nigerian phone number, e.g. 0803 123 4567")
-    return "+234" + digits
 
 
 class Registration(BaseModel):

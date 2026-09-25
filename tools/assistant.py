@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import ConversationTurn, TransactionORM
 from tools.clean_version import build_tools
+from tools.debt_collection import pending_drafts
 from tools.prompts import router_sys_msg
 from tools import router
 
@@ -64,12 +65,15 @@ async def respond(db: AsyncSession, user_id: int, text: str, channel: str) -> As
         lock = _user_locks[user_id] = asyncio.Lock()
 
     async with lock:
+        started = datetime.now(timezone.utc)
         history = await load_history(db, user_id)
         pending = await pending_amounts(db, user_id)
+        drafts = await pending_drafts(db, user_id)
 
         clarifications: list[dict] = []
-        tools = build_tools(db, user_id, clarifications)
-        result = await router.handle_message(text, router_sys_msg(channel, pending), tools, history)
+        tools = build_tools(db, user_id, clarifications, request_started_at=started)
+        prompt = router_sys_msg(channel, pending, drafts)
+        result = await router.handle_message(text, prompt, tools, history)
         reply = result["messages"][-1].text or FALLBACK_REPLY
 
         db.add_all([

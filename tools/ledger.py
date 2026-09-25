@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import business_today
 from db import TransactionORM, RepaymentAllocation
+from tools.contacts import save_contact
 from tools.formatting import format_naira
 
 ZERO = Decimal("0.00")
@@ -45,6 +46,10 @@ class TransactionInput(BaseModel):
     direction: Literal["in", "out"]
     note: Optional[str] = None
     date: Optional[date_type] = None
+    due_date: Optional[date_type] = Field(
+        default=None, description="When the other party promised to pay what's still owed, if they said")
+    party_phone: Optional[str] = Field(
+        default=None, description="The party's phone number, only if the user gave it")
 
     @model_validator(mode="after")
     def zero_means_unknown(self):
@@ -95,6 +100,7 @@ def describe(row: TransactionORM) -> dict:
         "amount_paid": float(row.amount_paid) if row.amount_paid is not None else None,
         "outstanding": float(row.outstanding) if row.outstanding is not None else None,
         "date": row.date.isoformat(),
+        "due_date": row.due_date.isoformat() if row.due_date else None,
         "status": row.status,
     }
 
@@ -182,7 +188,7 @@ async def persist_transactions(db: AsyncSession, transactions: list[TransactionI
                 type=t.type, party=t.party, item=t.item, quantity=t.quantity, unit=t.unit,
                 amount=to_money(t.amount), amount_paid=to_money(t.amount_paid),
                 direction=t.direction, note=t.note,
-                date=t.date or business_today(),
+                date=t.date or business_today(), due_date=t.due_date,
                 is_deleted=False,
             )
             _settle(row)
@@ -195,6 +201,14 @@ async def persist_transactions(db: AsyncSession, transactions: list[TransactionI
         for row in rows:
             if row.type == "debt_repayment" and row.status == "complete":
                 notes.extend(await _apply_repayment(db, row))
+
+        for t in transactions:
+            if t.party and t.party_phone:
+                try:
+                    await save_contact(db, user_id, t.party, t.party_phone)
+                    notes.append(f"Saved {t.party}'s number.")
+                except ValueError:
+                    notes.append(f"{t.party_phone} doesn't look like a Nigerian phone number, so I didn't save it.")
 
         # build the response before commit: committed rows are expired and can't lazy-load in async
         result = {
@@ -266,7 +280,7 @@ async def delete_transactions(db: AsyncSession, user_id: int, transaction_id: in
     return result
 
 
-_CORRECTABLE = ("amount", "amount_paid", "party", "item", "quantity", "unit", "note", "date")
+_CORRECTABLE = ("amount", "amount_paid", "party", "item", "quantity", "unit", "note", "date", "due_date")
 
 
 async def correct_transaction(db: AsyncSession, user_id: int, transaction_id: int | None = None, **changes) -> dict:

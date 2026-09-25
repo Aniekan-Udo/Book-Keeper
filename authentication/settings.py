@@ -29,6 +29,17 @@ class Settings(BaseSettings):
     WHATSAPP_PHONE_NUMBER_ID: str | None = None      # the business number's id (not the number itself)
     WHATSAPP_API_VERSION: str = "v23.0"
 
+    # Payment reminders to debtors. The template must be approved in Meta Business Manager
+    # first — see Documentation.MD for its exact text and parameters.
+    WHATSAPP_REMINDER_TEMPLATE: str | None = None
+    WHATSAPP_REMINDER_TEMPLATE_LANG: str = "en"
+    REMINDER_COOLDOWN_DAYS: int = 3    # at most one reminder per debtor per this many days
+    REMINDER_DAILY_LIMIT: int = 20     # per trader, rolling 24 hours
+
+    @property
+    def reminders_enabled(self) -> bool:
+        return self.whatsapp_enabled and bool(self.WHATSAPP_REMINDER_TEMPLATE)
+
     @property
     def whatsapp_enabled(self) -> bool:
         return all((self.WHATSAPP_VERIFY_TOKEN, self.WHATSAPP_APP_SECRET,
