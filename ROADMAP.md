@@ -67,9 +67,11 @@ A bookkeeper that gets the debt numbers wrong is worse than a notebook.
 4. ✅ **Customer ledger statements.** Statement of account per customer or supplier
    (running balance, due dates, brought-forward for a period), as forwardable text and
    a private, expiring, revocable printable link. No payment on it — a record only.
-5. **Bank / POS alert ingestion.** Forward a Moniepoint / OPay / bank alert
-   and it's recorded (and matched to an open debt if possible). Read-only: we
-   parse what the user forwards; never connect to or act on their accounts.
+5. ✅ **Bank / POS alert ingestion.** Forwarded alert text or screenshots are parsed;
+   clear repayments are recorded automatically, anything uncertain becomes a question;
+   duplicates, re-forwarded alerts and fake "transfer successful" screens are caught;
+   bank names are learned per customer. Read-only — never connects to accounts.
+   Next: collect real alert samples from each major bank/fintech as eval cases.
 6. **Credit profile.** Export 3–6 months of books as a lender-ready summary that
    the user shares with a lender themselves. We never lend, broker or move money.
 

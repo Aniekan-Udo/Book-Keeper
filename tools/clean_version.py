@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import GenerateDate
 from db import TransactionORM, User
 from monitoring import tracer
-from tools import debt_collection, statements
+from tools import alerts, debt_collection, statements
 from tools.contacts import save_contact
 from tools.expenses import get_expenses
 from tools.formatting import format_naira
@@ -252,9 +252,37 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
             count = await statements.revoke_links(db, user_id, party)
             return {"links_withdrawn": count}
 
+    @tool
+    async def review_bank_alert_tool(alert_text: str) -> dict:
+        """Use this when the user forwards or pastes a bank alert, transfer notification or
+        POS receipt (SMS/email/app text, or a "(forwarded alert screenshot)" message). Pass
+        the alert text exactly as given. It either records a clear repayment itself, or
+        returns a question to ask the user."""
+        with tracer.start_as_current_span("review_bank_alert"):
+            return await alerts.review_alert(db, user_id, alert_text)
+
+    @tool
+    async def resolve_bank_alert_tool(
+            alert_id: int,
+            record_as: alerts.RecordAs,
+            party: Optional[str] = None,
+            item: Optional[str] = None,
+            transaction_id: Optional[int] = None,
+    ) -> dict:
+        """Use this after the user answers what a bank alert was. record_as: "sale" (give item,
+        and party if known), "debt_repayment" (party = whose debt), "expense" (item = what
+        for), "loan_taken"/"loan_given" (party), "already_recorded" (transaction_id = the
+        entry it duplicates), or "ignore" (personal / not business money)."""
+        with tracer.start_as_current_span("resolve_bank_alert"):
+            try:
+                return await alerts.resolve_alert(db, user_id, alert_id, record_as, party, item, transaction_id)
+            except alerts.AlertError as e:
+                return {"error": str(e)}
+
     return [
         extract_transactions_tool, generate_report_tool, query_transactions_tool,
         undo_transaction_tool, correct_transaction_tool,
         save_contact_tool, remind_debtor_tool, confirm_reminder_tool,
         customer_statement_tool, stop_sharing_statement_tool,
+        review_bank_alert_tool, resolve_bank_alert_tool,
     ]

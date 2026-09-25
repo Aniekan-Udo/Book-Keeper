@@ -27,7 +27,7 @@ from channels.whatsapp_api import (  # noqa: F401 (re-exported for callers and t
     MAX_VOICE_BYTES, MediaTooLarge, _split, download_media, send_text,
 )
 from db import SessionLocal, User, WhatsAppInboundMessage, get_db_session
-from tools import debt_collection, transcribe as voice
+from tools import alerts, debt_collection, transcribe as voice
 from tools.assistant import respond
 from tools.router import LLMUnavailable
 from utils import logger
@@ -71,7 +71,13 @@ def signup_message(wa_from: str) -> str:
             f"\"I sell 3 bags rice to Emeka, 45k, he pay 30k\".\n\n{where}\n\nThen come back and message me here.")
 
 
-UNSUPPORTED_REPLY = "I can read text and listen to voice notes, but not photos or files yet. Please type or say what happened."
+UNSUPPORTED_REPLY = ("I can read text, voice notes, and screenshots of bank alerts or POS receipts — "
+                     "but not other files yet. Please type or say what happened.")
+IMAGE_NOT_ALERT_REPLY = ("I can only read screenshots of bank alerts, transfer notifications or POS receipts. "
+                         "For anything else, please type or say what happened.")
+IMAGE_TOO_LARGE_REPLY = "That image is too large for me. Please send a normal screenshot."
+IMAGE_FAILED_REPLY = "I couldn't read that image just now. Please try again, or paste the alert text."
+MAX_IMAGE_BYTES = 5_000_000
 VOICE_TOO_LONG_REPLY = "That voice note is a bit long for me. Please send shorter ones — one or two sales at a time."
 VOICE_FORMAT_REPLY = "I couldn't open that audio. Please record it as a normal WhatsApp voice note, or type it."
 VOICE_INAUDIBLE_REPLY = "I couldn't hear that clearly. Please send the voice note again somewhere quieter, or type it."
@@ -80,8 +86,8 @@ BUSY_REPLY = "I'm a bit busy right now. Please send that again in a couple of mi
 ERROR_REPLY = "Sorry, something went wrong on my side. Please try again."
 
 
-class VoiceNoteProblem(Exception):
-    """Carries the reply to send when a voice note can't be turned into text."""
+class MediaProblem(Exception):
+    """Carries the reply to send when a voice note or image can't be used."""
     def __init__(self, reply: str):
         super().__init__(reply)
         self.reply = reply
@@ -92,25 +98,45 @@ async def voice_note_text(audio: dict) -> tuple[str, str]:
     try:
         voice.normalize_mime(audio.get("mime_type", ""))
     except voice.UnsupportedAudio:
-        raise VoiceNoteProblem(VOICE_FORMAT_REPLY)
+        raise MediaProblem(VOICE_FORMAT_REPLY)
 
     try:
         data = await download_media(audio["id"])
     except MediaTooLarge:
-        raise VoiceNoteProblem(VOICE_TOO_LONG_REPLY)
+        raise MediaProblem(VOICE_TOO_LONG_REPLY)
     except httpx.HTTPError as e:
         logger.error(f"WhatsApp media download failed: {e}")
-        raise VoiceNoteProblem(VOICE_FAILED_REPLY)
+        raise MediaProblem(VOICE_FAILED_REPLY)
 
     try:
         heard = await voice.transcribe(data, audio["mime_type"])
     except Exception as e:
         logger.error(f"Voice note transcription failed: {e}", exc_info=True)
-        raise VoiceNoteProblem(VOICE_FAILED_REPLY)
+        raise MediaProblem(VOICE_FAILED_REPLY)
 
     if not heard.audible or not heard.transcript.strip():
-        raise VoiceNoteProblem(VOICE_INAUDIBLE_REPLY)
+        raise MediaProblem(VOICE_INAUDIBLE_REPLY)
     return voice.as_message(heard), heard.transcript.strip()
+
+
+async def alert_screenshot_text(image: dict) -> str:
+    """A screenshot of a bank alert / POS receipt, as a message for the assistant."""
+    try:
+        data = await download_media(image["id"], max_bytes=MAX_IMAGE_BYTES)
+    except MediaTooLarge:
+        raise MediaProblem(IMAGE_TOO_LARGE_REPLY)
+    except httpx.HTTPError as e:
+        logger.error(f"WhatsApp media download failed: {e}")
+        raise MediaProblem(IMAGE_FAILED_REPLY)
+    try:
+        text = await alerts.read_alert_image(data, image.get("mime_type", ""))
+    except Exception as e:
+        logger.error(f"Alert screenshot reading failed: {e}", exc_info=True)
+        raise MediaProblem(IMAGE_FAILED_REPLY)
+    if not text:
+        raise MediaProblem(IMAGE_NOT_ALERT_REPLY)
+    caption = image.get("caption", "").strip()
+    return f"(forwarded alert screenshot) {text}" + (f"\n(caption: {caption})" if caption else "")
 
 
 def _with_heard(heard: str, reply: str) -> str:
@@ -173,7 +199,13 @@ async def process_inbound(message: dict) -> None:
         elif message.get("type") == "audio":
             try:
                 text, heard = await voice_note_text(message["audio"])
-            except VoiceNoteProblem as problem:
+            except MediaProblem as problem:
+                await send_text(wa_from, problem.reply)
+                return
+        elif message.get("type") == "image":
+            try:
+                text = await alert_screenshot_text(message["image"])
+            except MediaProblem as problem:
                 await send_text(wa_from, problem.reply)
                 return
         else:

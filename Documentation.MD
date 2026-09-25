@@ -248,6 +248,34 @@ The assistant replies with a short text version for forwarding and a private lin
 
 Links need `APP_PUBLIC_URL`; without it the assistant still gives the text version.
 
+### Bank and POS alerts (`tools/alerts.py`)
+
+Traders forward or paste alerts (SMS, email, app notification) or send a screenshot of
+one. Strictly read-only: we parse what they choose to send — no bank connections, no
+logins, and the assistant never asks for PINs, OTPs, BVNs or card numbers.
+
+The model (`TRANSCRIPTION_MODEL`, which also reads screenshots) only extracts fields:
+credit/debit, amount, counterparty, narration, date, reference, and whether it's a
+sender's "transfer successful" receipt or contains a secret. What happens next is
+decided in code:
+
+| Situation | Result |
+|---|---|
+| Money in from the one person whose open debts cover the amount (or money out to the one supplier you owe) | Recorded as a repayment immediately; undoable |
+| No match, several matches, or more than they owe | Question: sale / old debt (whose) / loan / not business |
+| Same amount as an entry already recorded ±1 day | Question: "same money as #12?" — avoids double counting |
+| Same alert forwarded again | Skipped (fingerprint: reference, else date+name+narration) |
+| Sender's "transfer successful" screen | Never auto-recorded; the trader is told it isn't proof the money arrived |
+| Contains a PIN/OTP/card number/BVN | Not stored; the user is warned |
+
+When the trader answers "that's Mama Chidi", the bank name is remembered
+(`party_aliases`), so her next transfer is recognised automatically. Only parsed fields
+are stored (`bank_alerts`) — not the raw text, balances or account numbers. Undoing an
+entry made from an alert frees that alert to be used again.
+
+Try real alerts: `uv run python -m tools.alerts "Credit Alert ..."` or
+`uv run python -m tools.alerts screenshot.jpg`.
+
 ## 6. Idempotency
 
 `/api/v1/message` accepts an `Idempotency-Key` header. The response is stored in

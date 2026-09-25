@@ -133,3 +133,17 @@ async def other_user(db_session):
     await db_session.commit()
     await db_session.refresh(user)
     return user
+
+@pytest.fixture(autouse=True)
+def no_real_network(monkeypatch):
+    """Fail any test that would make a real HTTP call (e.g. to Meta) instead of using a
+    stub or an explicit transport such as httpx.MockTransport / ASGITransport."""
+    import httpx
+
+    class GuardedAsyncClient(httpx.AsyncClient):
+        def __init__(self, *args, **kwargs):
+            if "transport" not in kwargs:
+                raise RuntimeError("Test tried to make a real network call; stub it or pass a transport.")
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", GuardedAsyncClient)

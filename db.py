@@ -209,6 +209,44 @@ class StatementLink(Model):
     revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
+class BankAlert(Model):
+    """A bank/POS alert the user forwarded. Parsed fields only — the raw text (with
+    balances and account numbers) isn't kept. Never a connection to the bank."""
+    __tablename__ = "bank_alerts"
+    __table_args__ = (UniqueConstraint("user_id", "fingerprint", name="uq_bank_alerts_user_id_fingerprint"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("user.id"), nullable=False, index=True)
+    # identifies the same alert forwarded twice
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)       # credit_alert / debit_alert / sender_receipt / pos_receipt
+    direction: Mapped[str] = mapped_column(SQLEnum("in", "out", name="alert_direction"), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    counterparty: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    narration: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    occurred_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    reference: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    status: Mapped[str] = mapped_column(
+        SQLEnum("pending", "recorded", "already_recorded", "ignored", name="alert_status"), nullable=False
+    )
+    transaction_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("business_transactions.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class PartyAlias(Model):
+    """How a customer's name appears on bank alerts ("MAMA CHIDI OKAFOR") → the name the
+    trader uses ("Mama Chidi"), learned when the trader confirms who sent money."""
+    __tablename__ = "party_aliases"
+    __table_args__ = (UniqueConstraint("user_id", "alias_key", name="uq_party_aliases_user_id_alias_key"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("user.id"), nullable=False, index=True)
+    alias_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    party: Mapped[str] = mapped_column(String(120), nullable=False)
+
+
 async def init_models():
     async with engine.begin() as conn:
         await conn.run_sync(Model.metadata.create_all)
