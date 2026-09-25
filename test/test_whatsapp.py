@@ -174,12 +174,12 @@ async def test_entries_are_recorded_for_the_sender(client, ada, agent, sent, db_
     assert [(r.user_id, r.party) for r in recorded] == [(ada.id, "Emeka")]
 
 
-async def test_unknown_number_gets_signup_link(client, agent, sent):
+async def test_unknown_number_starts_sign_up(client, agent, sent):
     await post_signed(client, payload(text_message("hello", sender="2348099999999")))
     assert len(sent) == 1
     to, body = sent[0]
     assert to == "2348099999999"
-    assert "https://books.example.com/?signup=1&phone=%2B2348099999999" in body
+    assert "What's the name of your business?" in body
     assert agent.calls == []
 
 

@@ -87,10 +87,37 @@ All reports exclude deleted and `needs_amount` entries.
 
 ## 3. Authentication
 
-- `POST /register` — creates the account (email, password, business name, optional
-  Nigerian phone normalized to `+234…`) and logs straight in.
-- `POST /login` — email (case-insensitive) + password.
-- Both return a short-lived **access token** (JWT, default 30 min) in the body and set a
+There are two kinds of account, and one rule that protects both.
+
+**The rule: `user.phone` is only ever set from proof.** The phone number decides whose
+books a WhatsApp message goes into, so it's never taken from a form. It's set either by
+signing up on WhatsApp (the message itself proves the number) or by sending a code from
+WhatsApp (below). Web sign-up has no phone field.
+
+**WhatsApp accounts** (most traders) are created in the chat — see §5, "Sign-up on
+WhatsApp" — and have no email or password.
+
+**Web accounts** use email + password:
+- `POST /register` — email, password, name, business name; logs straight in.
+- `POST /login` — email (case-insensitive) + password. Accounts without a password
+  always fail here.
+
+**Proving a phone number with a WhatsApp code** (`tools/phone_auth.py`,
+`endpoints/whatsapp_auth.py`). Instead of us texting a code, the website shows one and
+the user sends it to our WhatsApp number — no SMS provider or approved template needed:
+- `POST /auth/whatsapp/login {phone}` → `LOGIN 483920` plus a `wa.me` link that
+  pre-fills it. Sent from that phone, it logs the browser in (passwordless web login).
+- `POST /auth/whatsapp/link {phone}` (logged in) → `LINK 483920`. Sent from that phone,
+  it connects the number to the web account ("Connect WhatsApp").
+- `POST /auth/whatsapp/challenges/<id>` — the page polls; an approved login returns a
+  session once.
+- A code only counts when it comes **from the number the challenge names**, so guessing
+  codes from another phone does nothing, and someone who knows your number can't attach
+  it to their account. Codes expire after 10 minutes. The website never says whether a
+  number has an account; that's only told to the number's owner, on WhatsApp.
+- Replying **LOGOUT** on WhatsApp signs the account out of every web session.
+
+**Sessions**, however you log in: a short-lived **access token** (JWT, default 30 min) in the body and set a
   **refresh token** (JWT, 7 days, `httpOnly` cookie, stored by `jti` in `refresh_tokens`).
 - `POST /refresh` rotates the refresh token. Presenting an already-rotated token is
   treated as theft: all the user's sessions are revoked.
@@ -148,9 +175,22 @@ server's timezone.
 
 Inbound flow: verify the `X-Hub-Signature-256` HMAC → record the message id in
 `whatsapp_inbound_messages` (unique — Meta redelivers webhooks) → return 200 at once →
-answer in a background task. Senders are matched to accounts by phone (`+234…`);
-unknown numbers get a sign-up link that pre-fills their number. Photos and files get a
-polite "text or voice only" reply.
+answer in a background task. Messages from one sender are handled one at a time, in
+order (a per-process lock — with several server workers, route each sender to one worker
+or move the lock to Redis/Postgres). In order of precedence, a message is: a `LOGIN`/`LINK`
+code; a reply from someone who received a payment reminder; a message from a trader
+(matched by their proven phone); or someone new, who goes into sign-up.
+
+### Sign-up on WhatsApp (`channels/onboarding.py`)
+
+A new number gets a welcome and two questions — business name, then their name — and
+the account is created only once both are answered (so a stray "hi" doesn't make one).
+The WhatsApp number becomes the account; there's no email or password. If their very
+first message was a transaction ("I sold rice to Emeka 5k"), it's recorded as soon as the
+account exists. "cancel" stops; an abandoned sign-up restarts after 24 hours.
+
+The welcome links to `PRIVACY_POLICY_URL`. **Set this before launch**: the Nigeria Data
+Protection Act 2023 expects people to be told how their data is used when it's collected.
 
 ### Voice notes (`tools/transcribe.py`)
 

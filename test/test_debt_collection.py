@@ -294,9 +294,9 @@ async def test_debtor_reply_not_forwarded_outside_the_24_hour_window(client, ada
     assert [to for to, _ in sent] == [EMEKA_WA]
 
 
-async def test_strangers_still_get_the_signup_link(client, sent):
+async def test_strangers_still_get_sign_up(client, sent):
     await post_signed(client, payload(text_message("hello", sender="2348077778888")))
-    assert "signup=1" in sent[0][1]
+    assert sent[0][1].startswith("Welcome to Book-Keeper!")
 
 
 async def test_trader_who_was_also_reminded_keeps_bookkeeping(client, ada, agent, sent, templates, db_session):

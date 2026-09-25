@@ -13,7 +13,7 @@ from db import get_db_session
 
 SIGNUP = {
     "firstname": "Ada", "lastname": "Obi", "email": "Ada@Example.com",
-    "password": "a-strong-password", "business_name": "Ada Provisions", "phone": "0803 123 4567",
+    "password": "a-strong-password", "business_name": "Ada Provisions",
 }
 
 
@@ -55,26 +55,23 @@ async def test_register_logs_in_and_normalizes_details(client):
     headers = await signup(client)
     me = (await client.get("/api/v1/me", headers=headers)).json()
     assert me["email"] == "ada@example.com"
-    assert me["phone"] == "+2348031234567"
+    assert me["phone"] is None  # connected later, by proving it from WhatsApp
     assert me["business_name"] == "Ada Provisions"
     assert "refresh_token" in client.cookies
 
 
 async def test_register_duplicate_email_is_rejected_case_insensitively(client):
     await signup(client)
-    response = await client.post("/register", json={**SIGNUP, "email": "ADA@example.com", "phone": None})
+    response = await client.post("/register", json={**SIGNUP, "email": "ADA@example.com"})
     assert response.status_code == 409
 
 
-async def test_register_duplicate_phone_is_rejected(client):
-    await signup(client)
-    response = await client.post("/register", json={**SIGNUP, "email": "new@example.com", "phone": "+234 803 123 4567"})
-    assert response.status_code == 409
-
-
-async def test_register_rejects_invalid_phone(client):
-    response = await client.post("/register", json={**SIGNUP, "phone": "12345"})
-    assert response.status_code == 422
+async def test_web_signup_cannot_claim_a_phone_number(client):
+    """Security: a phone number decides whose books WhatsApp messages go into, so it must
+    never come from a web form — only from proof sent from that WhatsApp number."""
+    headers = await signup(client, phone="0803 123 4567")
+    me = (await client.get("/api/v1/me", headers=headers)).json()
+    assert me["phone"] is None
 
 
 async def test_login_is_case_insensitive_on_email(client):
@@ -103,7 +100,7 @@ async def test_bookkeeping_endpoints_reject_refresh_token_as_access_token(client
 
 async def test_user_id_in_body_is_ignored(client, fake_llm):
     ada = await signup(client)
-    await signup(client, email="bola@example.com", phone=None)
+    await signup(client, email="bola@example.com")
 
     fake_llm.append({"type": "sale", "direction": "in", "party": "Emeka", "item": "rice"})
     response = await client.post("/api/v1/message", json={"message": "I sold rice", "user_id": 2}, headers=ada)
@@ -118,7 +115,7 @@ async def test_user_id_in_body_is_ignored(client, fake_llm):
 
 async def test_cannot_clarify_another_users_transaction(client, fake_llm):
     ada = await signup(client)
-    bola = await signup(client, email="bola@example.com", phone=None)
+    bola = await signup(client, email="bola@example.com")
 
     fake_llm.append({"type": "sale", "direction": "in", "party": "Emeka", "item": "rice"})
     response = await client.post("/api/v1/message", json={"message": "I sold rice"}, headers=ada)

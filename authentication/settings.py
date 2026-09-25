@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     WHATSAPP_ACCESS_TOKEN: SecretStr | None = None   # system-user token with whatsapp_business_messaging
     WHATSAPP_PHONE_NUMBER_ID: str | None = None      # the business number's id (not the number itself)
     WHATSAPP_API_VERSION: str = "v23.0"
+    # the business number as digits (e.g. 2349012345678), for wa.me links on the website
+    WHATSAPP_DISPLAY_NUMBER: str | None = None
+    # shown when someone signs up on WhatsApp; required before launch (Nigeria Data Protection Act)
+    PRIVACY_POLICY_URL: str | None = None
 
     # Payment reminders to debtors. The template must be approved in Meta Business Manager
     # first — see Documentation.MD for its exact text and parameters.

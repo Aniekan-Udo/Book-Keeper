@@ -9,11 +9,12 @@ Flow: Meta POSTs a signed webhook → we check the signature, remember each mess
 (Meta redelivers; the unique id stops double-recording), reply 200 straight away, and
 answer in a background task — the LLM can take longer than Meta waits.
 """
+import asyncio
 import hashlib
 import hmac
 import json
+import weakref
 from contextlib import asynccontextmanager
-from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
@@ -22,12 +23,14 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from authentication.auth import TokenData, revoke_all_user_tokens
 from authentication.settings import settings
+from channels import onboarding
 from channels.whatsapp_api import (  # noqa: F401 (re-exported for callers and tests)
     MAX_VOICE_BYTES, MediaTooLarge, _split, download_media, send_text,
 )
 from db import SessionLocal, User, WhatsAppInboundMessage, get_db_session
-from tools import alerts, debt_collection, transcribe as voice
+from tools import alerts, debt_collection, phone_auth, transcribe as voice
 from tools.assistant import respond
 from tools.router import LLMUnavailable
 from utils import logger
@@ -58,17 +61,6 @@ def signature_is_valid(raw_body: bytes, header: str | None) -> bool:
         return False
     expected = hmac.new(settings.WHATSAPP_APP_SECRET.get_secret_value().encode(), raw_body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, header.removeprefix("sha256="))
-
-
-def signup_message(wa_from: str) -> str:
-    phone = "+" + wa_from
-    if settings.APP_PUBLIC_URL:
-        link = f"{settings.APP_PUBLIC_URL.rstrip('/')}/?signup=1&phone={quote(phone)}"
-        where = f"Create your free account with this number here:\n{link}"
-    else:
-        where = f"Create your account on the Book-Keeper website using this number ({phone})."
-    return (f"Welcome to Book-Keeper! 📒\n\nI keep your shop's books from simple messages like "
-            f"\"I sell 3 bags rice to Emeka, 45k, he pay 30k\".\n\n{where}\n\nThen come back and message me here.")
 
 
 UNSUPPORTED_REPLY = ("I can read text, voice notes, and screenshots of bank alerts or POS receipts — "
@@ -180,22 +172,68 @@ async def _handle_reminder_recipient(db, wa_from: str, message: dict, registered
     return True
 
 
+LOGOUT_WORDS = {"logout", "log out", "sign out", "signout"}
+LOGGED_OUT_REPLY = ("Done — you've been signed out of Book-Keeper on every website and computer. "
+                    "Your books are safe, and you can keep using me here on WhatsApp.")
+
+
+async def _answer(db, wa_from: str, user_id: int, text: str, heard: str | None = None, wamid: str | None = None) -> None:
+    try:
+        answer = await respond(db, user_id, text, channel="whatsapp")
+        reply = _with_heard(heard, answer.reply) if heard else answer.reply
+    except LLMUnavailable:
+        reply = BUSY_REPLY
+    except Exception as e:
+        logger.error(f"WhatsApp message failed: {e}", wamid=wamid, user_id=user_id, exc_info=True)
+        reply = ERROR_REPLY
+    await send_text(wa_from, reply)
+
+
+# one message at a time per sender, in arrival order: a quick burst ("hi", "Ada Provisions",
+# "Ada") must not race through sign-up. Per process — see Documentation.MD for multi-worker.
+_sender_locks: "weakref.WeakValueDictionary[str, asyncio.Lock]" = weakref.WeakValueDictionary()
+
+
 async def process_inbound(message: dict) -> None:
     """Answer one inbound WhatsApp message. Runs after the webhook has already returned 200."""
+    lock = _sender_locks.get(message["from"])
+    if lock is None:
+        lock = _sender_locks[message["from"]] = asyncio.Lock()
+    async with lock:
+        await _process_inbound(message)
+
+
+async def _process_inbound(message: dict) -> None:
     wa_from = message["from"]
+    typed = message["text"]["body"] if message.get("type") == "text" else ""
     async with session_factory() as db:
+        # "LOGIN 123456" / "LINK 123456" from the website, proving this number is theirs
+        code = phone_auth.parse_code_message(typed)
+        if code is not None:
+            await send_text(wa_from, await phone_auth.complete_from_whatsapp(db, wa_from, *code))
+            return
+
         user_id = (await db.execute(select(User.id).where(User.phone == "+" + wa_from))).scalar_one_or_none()
 
         if await _handle_reminder_recipient(db, wa_from, message, registered=user_id is not None):
             return
 
         if user_id is None:
-            await send_text(wa_from, signup_message(wa_from))
+            result = await onboarding.handle(db, wa_from, message)
+            for reply in result.replies:
+                await send_text(wa_from, reply)
+            if result.user_id is not None and result.replay:
+                await _answer(db, wa_from, result.user_id, result.replay, wamid=message.get("id"))
+            return
+
+        if typed.strip().lower().rstrip(".!") in LOGOUT_WORDS:
+            await revoke_all_user_tokens(db, TokenData(user_id=str(user_id)))
+            await send_text(wa_from, LOGGED_OUT_REPLY)
             return
 
         heard = None
         if message.get("type") == "text":
-            text = message["text"]["body"]
+            text = typed
         elif message.get("type") == "audio":
             try:
                 text, heard = await voice_note_text(message["audio"])
@@ -212,15 +250,7 @@ async def process_inbound(message: dict) -> None:
             await send_text(wa_from, UNSUPPORTED_REPLY)
             return
 
-        try:
-            answer = await respond(db, user_id, text, channel="whatsapp")
-            reply = _with_heard(heard, answer.reply) if heard else answer.reply
-        except LLMUnavailable:
-            reply = BUSY_REPLY
-        except Exception as e:
-            logger.error(f"WhatsApp message failed: {e}", wamid=message.get("id"), user_id=user_id, exc_info=True)
-            reply = ERROR_REPLY
-        await send_text(wa_from, reply)
+        await _answer(db, wa_from, user_id, text, heard, wamid=message.get("id"))
 
 
 def _inbound_messages(payload: dict) -> list[dict]:

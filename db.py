@@ -35,10 +35,12 @@ class User(Model):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     firstname: Mapped[str] = mapped_column(String(50), nullable=False)
     lastname: Mapped[str] = mapped_column(String(50), nullable=False)
-    email: Mapped[str] = mapped_column(String(254), unique=True, nullable=False)
-    password: Mapped[str] = mapped_column(String(255), nullable=False)
+    # email/password are optional: traders who sign up on WhatsApp have neither
+    email: Mapped[str | None] = mapped_column(String(254), unique=True, nullable=True)
+    password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     business_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    # E.164, e.g. +2348012345678 — how the WhatsApp channel will identify the user
+    # E.164, e.g. +2348012345678. Only ever set once ownership is proven — a WhatsApp message
+    # from this number — because it decides whose books WhatsApp messages go into.
     phone: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
@@ -245,6 +247,46 @@ class PartyAlias(Model):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("user.id"), nullable=False, index=True)
     alias_key: Mapped[str] = mapped_column(String(120), nullable=False)
     party: Mapped[str] = mapped_column(String(120), nullable=False)
+
+
+class OnboardingSession(Model):
+    """A stranger signing up over WhatsApp, between their first message and account creation."""
+    __tablename__ = "onboarding_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    wa_from: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    step: Mapped[str] = mapped_column(SQLEnum("business_name", "name", name="onboarding_step"), nullable=False)
+    business_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # their first message, replayed once the account exists if it was a transaction
+    first_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class PhoneChallenge(Model):
+    """Proof of phone ownership, the other way round from SMS codes: the website shows a
+    code and the user sends it to our WhatsApp number from their phone. Used to log in
+    without a password and to connect a number to a web account."""
+    __tablename__ = "phone_challenges"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # what the browser polls with; secret, unlike the short code
+    public_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    code: Mapped[str] = mapped_column(String(6), nullable=False, index=True)
+    purpose: Mapped[str] = mapped_column(SQLEnum("login", "link", name="challenge_purpose"), nullable=False)
+    # only a message from this number can complete the challenge
+    expected_phone: Mapped[str] = mapped_column(String(20), nullable=False)
+    # link: the web account asking to add the phone; login: filled in on approval
+    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("user.id"), nullable=True)
+    status: Mapped[str] = mapped_column(
+        SQLEnum("pending", "approved", "consumed", "rejected", name="challenge_status"), nullable=False
+    )
+    rejection: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 async def init_models():

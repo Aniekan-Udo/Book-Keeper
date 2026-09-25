@@ -1,29 +1,24 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, EmailStr, Field, field_validator
-from sqlalchemy import select, or_, func
+from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from authentication.auth import hash_password, issue_session
 from db import get_db_session, User
-from tools.phones import normalize_nigerian_phone
 from utils import limiter
 
 router = APIRouter()
 
 
 class Registration(BaseModel):
+    """Web sign-up. There's no phone field on purpose: a phone number is only attached to
+    an account once its owner proves it from WhatsApp ("Connect WhatsApp")."""
     firstname: str = Field(min_length=1, max_length=50)
     lastname: str = Field(min_length=1, max_length=50)
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     business_name: str = Field(min_length=1, max_length=100)
-    phone: str | None = None
-
-    @field_validator("phone")
-    @classmethod
-    def valid_phone(cls, v: str | None) -> str | None:
-        return normalize_nigerian_phone(v) if v else None
 
 
 @router.post("/register", status_code=201, tags=["registration"])
@@ -31,25 +26,23 @@ class Registration(BaseModel):
 async def register(request: Request, reg: Registration, response: Response,
                    db: AsyncSession = Depends(get_db_session)):
     email = reg.email.lower()
-    clauses = [func.lower(User.email) == email] + ([User.phone == reg.phone] if reg.phone else [])
-    existing = (await db.execute(select(User).where(or_(*clauses)))).scalars().first()
+    existing = (await db.execute(select(User.id).where(func.lower(User.email) == email))).first()
     if existing is not None:
-        detail = "Email already registered" if existing.email.lower() == email else "Phone number already registered"
-        raise HTTPException(status_code=409, detail=detail)
+        raise HTTPException(status_code=409, detail="Email already registered")
 
     user = User(
         firstname=reg.firstname.strip(), lastname=reg.lastname.strip(), email=email,
-        password=hash_password(reg.password),
-        business_name=reg.business_name.strip(), phone=reg.phone,
+        password=hash_password(reg.password), business_name=reg.business_name.strip(),
     )
     db.add(user)
     try:
+        await db.flush()
+        user_id = user.id
         await db.commit()
     except IntegrityError:
-        # lost a race with a concurrent sign-up using the same email/phone
+        # lost a race with a concurrent sign-up using the same email
         await db.rollback()
-        raise HTTPException(status_code=409, detail="Email or phone number already registered")
-    await db.refresh(user)
+        raise HTTPException(status_code=409, detail="Email already registered")
 
     # log straight in after signing up
-    return await issue_session(db, response, user.id)
+    return await issue_session(db, response, user_id)

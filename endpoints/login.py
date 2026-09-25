@@ -20,7 +20,8 @@ async def login(request: Request, credentials: Login, response: Response, db: As
     result = await db.execute(select(User).where(func.lower(User.email) == credentials.email.lower()))
     user = result.scalar_one_or_none()
 
-    if user is None or not verify_password(credentials.password, user.password):
+    # WhatsApp-only accounts have no password: they log in with a WhatsApp code instead
+    if user is None or user.password is None or not verify_password(credentials.password, user.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     return await issue_session(db, response, user.id)
