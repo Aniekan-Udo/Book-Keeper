@@ -33,23 +33,17 @@ class LedgerError(ValueError):
 
 class TransactionInput(BaseModel):
     type: Literal["sale", "expense", "loan_taken", "loan_given", "debt_repayment"]
-    party: Optional[str] = Field(default=None, description="Customer, supplier, lender or borrower, exactly as the user named them")
+    party: Optional[str] = Field(default=None, description="Exactly as the user named them")
     item: Optional[str] = None
     quantity: Optional[float] = None
     unit: Optional[str] = None
-    amount: Optional[float] = Field(default=None, description="Full agreed amount / loan amount / repayment amount. Null if not stated.")
-    amount_paid: Optional[float] = Field(
-        default=None,
-        description="Only for part-payment: how much of a sale or purchase was paid at the time, "
-                    "or how much of a loan has already been repaid. Leave null otherwise.",
-    )
+    amount: Optional[float] = Field(default=None, description="Full amount; null if not stated")
+    amount_paid: Optional[float] = Field(default=None, description="Paid at the time; only for part-payment or credit")
     direction: Literal["in", "out"]
     note: Optional[str] = None
     date: LooseDate = None
-    due_date: LooseDate = Field(
-        default=None, description="When the other party promised to pay what's still owed, if they said")
-    party_phone: Optional[str] = Field(
-        default=None, description="The party's phone number, only if the user gave it")
+    due_date: LooseDate = Field(default=None, description="When they promised to pay, YYYY-MM-DD")
+    party_phone: Optional[str] = Field(default=None, description="Only if the user gave it")
 
     @model_validator(mode="after")
     def zero_means_unknown(self):

@@ -75,7 +75,7 @@ async def respond(db: AsyncSession, user_id: int, text: str, channel: str) -> As
 
         clarifications: list[dict] = []
         tools = build_tools(db, user_id, clarifications, request_started_at=started)
-        prompt = router_sys_msg(channel, pending, drafts, alerts_waiting)
+        prompt = router_sys_msg(channel, pending, drafts, alerts_waiting, message=text)
         tracer = message_tracer(user_id, channel)
         result = await router.handle_message(text, prompt, tools, history,
                                              callbacks=[tracer] if tracer else None)

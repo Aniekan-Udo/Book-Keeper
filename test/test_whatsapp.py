@@ -163,7 +163,7 @@ async def test_registered_user_gets_the_assistants_reply(client, ada, agent, sen
     assert response.status_code == 200
     assert sent == [(ADA_WA, "Recorded: sold rice to Emeka for ₦45,000.")]
     assert agent.calls[0]["message"] == "I sell rice to Emeka 45k"
-    assert "This is WhatsApp" in agent.calls[0]["prompt"]
+    assert "WhatsApp: plain text" in agent.calls[0]["prompt"]
 
 
 async def test_entries_are_recorded_for_the_sender(client, ada, agent, sent, db_session):

@@ -29,7 +29,7 @@ class TransactionQuery(BaseModel):
 
 class Correction(BaseModel):
     transaction_id: Optional[int] = Field(
-        default=None, description="The id to change. Leave null to change the entry from the user's last message.")
+        default=None, description="Null = the entry from the user's last message")
     amount: Optional[float] = None
     amount_paid: Optional[float] = None
     party: Optional[str] = None
@@ -78,10 +78,7 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
 
     @tool
     async def extract_transactions_tool(transactions: list[TransactionInput]) -> dict:
-        """Use this when the user is describing something that happened: a sale, an
-        expense, a loan, or a repayment. Extract every distinct transaction mentioned
-        as a separate item in the list, following the amount/disambiguation/
-        no-fabrication rules from your system instructions."""
+        """Record what happened: sales, expenses, loans, repayments — one item per transaction mentioned."""
         result = await persist_transactions(db, transactions, user_id)
         if clarifications is not None:
             clarifications.extend(result["clarifications"])
@@ -89,9 +86,7 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
 
     @tool
     async def query_transactions_tool(query: TransactionQuery) -> dict:
-        """Use this when the user asks about specific past transactions — what they spent
-        money on, who they paid, what they sold to someone — rather than a summary report.
-        Also use it to find the id of an entry the user wants to change or remove."""
+        """Look up specific past entries ("what did I sell to Tunde?", "wetin I spend on fuel?"), or find an entry's id."""
 
         stmt = select(TransactionORM).where(
             TransactionORM.user_id == user_id,
@@ -132,9 +127,7 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
             start_date: LooseDate = None,
             end_date: LooseDate = None,
     ) -> dict:
-        """Use this when the user asks for their profit/PnL, expenses, what people owe
-        them (receivables) or what they owe others (payables). Convert relative time
-        language into actual calendar dates. Leave both dates null for all-time."""
+        """Profit (pnl), expenses, receivables (who owes the user) or payables (who the user owes), for a period."""
         dates = GenerateDate(start_date=start_date, end_date=end_date)
         if report_type == "pnl":
             return await generate_pnl(db, dates, user_id)
@@ -146,9 +139,7 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
 
     @tool
     async def undo_transaction_tool(transaction_id: Optional[int] = None) -> dict:
-        """Use this when the user wants to cancel, remove or undo an entry ("cancel that",
-        "delete the fuel expense"). Leave transaction_id null to undo everything recorded
-        from their last message; otherwise pass the id (find it with query_transactions_tool)."""
+        """Cancel/undo entries ("cancel that", "delete am"). No id = everything from the user's last message."""
         try:
             return await delete_transactions(db, user_id, transaction_id)
         except LedgerError as e:
@@ -156,10 +147,7 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
 
     @tool
     async def correct_transaction_tool(correction: Correction) -> dict:
-        """Use this when the user says an entry is wrong and gives the right value
-        ("it was 45k not 50k", "that was Tunde not Tayo", "that happened yesterday").
-        Only fill the fields that change. Leave transaction_id null for the entry from
-        their last message; otherwise find the id with query_transactions_tool."""
+        """Fix an entry ("it was 45k not 50k", "na Tunde, no be Tayo", add a due date). Fill only fields that change; no id = the entry from the last message."""
         fields = correction.model_dump(exclude={"transaction_id"}, exclude_none=True)
         try:
             return await correct_transaction(db, user_id, correction.transaction_id, **fields)
@@ -168,9 +156,7 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
 
     @tool
     async def save_contact_tool(name: str, phone: str) -> dict:
-        """Use this when the user gives a customer's, borrower's or supplier's phone number
-        ("Mama Chidi number na 0803 123 4567"). Use the person's name exactly as the user
-        writes it elsewhere, so it matches their debts."""
+        """Save a customer's/supplier's phone number ("Mama Chidi number na 0803…"). Use the name as used for their debts."""
         try:
             contact = await save_contact(db, user_id, name, phone)
             result = {"saved": contact.name, "phone": contact.phone}  # read before commit expires it
@@ -182,9 +168,7 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
 
     @tool
     async def remind_debtor_tool(party: str) -> dict:
-        """Use this when the user wants to remind someone who owes them to pay ("remind
-        Mama Chidi", "tell Emeka make he pay"). This only prepares a draft: show the user
-        the recipient and message it returns, and ask them to confirm. It does not send."""
+        """Draft a payment reminder to someone who owes the user ("remind Mama Chidi"). Only drafts; returns the message to show."""
         user = await db.get(User, user_id)
         try:
             return await debt_collection.draft_reminder(db, user, party)
@@ -193,9 +177,7 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
 
     @tool
     async def confirm_reminder_tool(reminder_id: int) -> dict:
-        """Send a reminder draft, ONLY after the user has seen it and said yes in a new
-        message ("yes", "send am", "ok go ahead"). Never call this in the same turn as
-        remind_debtor_tool, and never if the user said no or changed the subject."""
+        """Send a reminder draft — only after the user saw it and said yes in a later message."""
         user = await db.get(User, user_id)
         try:
             return await debt_collection.confirm_reminder(db, user, reminder_id, not_before=started)
@@ -209,10 +191,7 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
             end_date: LooseDate = None,
             share_link: bool = True,
     ) -> dict:
-        """Use this when the user wants a statement / record of everything with one customer
-        or supplier ("send me Mama Chidi statement", "wetin Emeka don buy and pay?", "show
-        my account with Alhaji"). Returns a short text version and, if share_link is true,
-        a private link to a printable statement the user can forward to that person."""
+        """Statement of everything with one person ("send me Mama Chidi statement"). Returns short text and a private link the user can forward to that person."""
         user = await db.get(User, user_id)
         try:
             st = await statements.build_statement(db, user, party, start_date, end_date)
@@ -229,17 +208,13 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
 
     @tool
     async def stop_sharing_statement_tool(party: str) -> dict:
-        """Use this when the user wants to withdraw statement links they shared for a person
-        ("stop sharing Mama Chidi statement", "cancel that link")."""
+        """Withdraw statement links shared for a person."""
         count = await statements.revoke_links(db, user_id, party)
         return {"links_withdrawn": count}
 
     @tool
     async def review_bank_alert_tool(alert_text: str) -> dict:
-        """Use this when the user forwards or pastes a bank alert, transfer notification or
-        POS receipt (SMS/email/app text, or a "(forwarded alert screenshot)" message). Pass
-        the alert text exactly as given. It either records a clear repayment itself, or
-        returns a question to ask the user."""
+        """A forwarded bank/POS alert or "(forwarded alert screenshot)": pass its text unchanged. Records a clear repayment itself, or returns a question to ask."""
         return await alerts.review_alert(db, user_id, alert_text)
 
     @tool
@@ -250,10 +225,7 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
             item: Optional[str] = None,
             transaction_id: Optional[int] = None,
     ) -> dict:
-        """Use this after the user answers what a bank alert was. record_as: "sale" (give item,
-        and party if known), "debt_repayment" (party = whose debt), "expense" (item = what
-        for), "loan_taken"/"loan_given" (party), "already_recorded" (transaction_id = the
-        entry it duplicates), or "ignore" (personal / not business money)."""
+        """Record the user's answer about a bank alert. record_as: sale (item, party), debt_repayment (party), expense (item), loan_taken/loan_given (party), already_recorded (transaction_id), ignore (personal)."""
         try:
             return await alerts.resolve_alert(db, user_id, alert_id, record_as, party, item, transaction_id)
         except alerts.AlertError as e:
