@@ -82,9 +82,9 @@ async def _transcribe_with_chat_model(audio: bytes, mime_type: str) -> Transcrip
 GROQ_AUDIO_URL = "https://api.groq.com/openai/v1/audio"
 # Whisper picks the file type from the name
 _EXTENSION = {"audio/ogg": "ogg", "audio/mp3": "mp3", "audio/aac": "m4a", "audio/wav": "wav", "audio/flac": "flac"}
-# nudges spelling towards how traders talk and write amounts
-WHISPER_PROMPT = ("Nigerian trader keeping business records, in English or Pidgin: I sell 3 bags rice to Emeka, "
-                  "45k, he pay 30k, balance, Mama Chidi, Alhaji, naira.")
+# Nudges spelling towards traders' vocabulary. A word list, not example sentences: Whisper
+# copies a prompt's phrasing too (an example "he pay 30k" turned a spoken "he paid" into "he pay").
+WHISPER_PROMPT = "Naira amounts: 5k, 45k, 1.5m. Names: Mama Chidi, Emeka, Alhaji, Tunde. Balance, on credit, carton."
 # Whisper's language names → ours; Whisper has no Pidgin (it hears it as English) and no Igbo
 _LANGUAGES = {"english": "english", "yoruba": "yoruba", "hausa": "hausa"}
 

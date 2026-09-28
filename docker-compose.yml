@@ -33,7 +33,7 @@ services:
       SESSION_IDLE_DAYS: ${SESSION_IDLE_DAYS:-30}
       SESSION_MAX_DAYS: ${SESSION_MAX_DAYS:-90}
       LLM_MODEL: ${LLM_MODEL:-groq:openai/gpt-oss-120b}
-      VISION_MODEL: ${VISION_MODEL:-groq:meta-llama/llama-4-scout-17b-16e-instruct}
+      VISION_MODEL: ${VISION_MODEL:-groq:qwen/qwen3.8-27b}
       TRANSCRIPTION_MODEL: ${TRANSCRIPTION_MODEL:-groq:whisper-large-v3}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       LLM_REQUESTS_PER_MINUTE: ${LLM_REQUESTS_PER_MINUTE:-}

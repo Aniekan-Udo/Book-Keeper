@@ -243,7 +243,7 @@ async def test_whisper_transcription_request(whisper):
     body = request.content
     assert b'filename="voice-note.ogg"' in body and b"OggS voice" in body
     assert b"whisper-large-v3" in body and b"verbose_json" in body
-    assert b"Nigerian trader" in body  # the vocabulary prompt
+    assert b"Mama Chidi" in body  # the vocabulary prompt
 
 
 async def test_whisper_translates_yoruba(whisper):

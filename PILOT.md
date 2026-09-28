@@ -21,6 +21,11 @@ too small even for testing.
 
 - [console.groq.com](https://console.groq.com) → Settings → Billing: a working payment
   method and nothing overdue. An overdue account is blocked outright.
+- **Check the rate limits.** Measured on the free tier: 8,000 tokens/minute and 1,000
+  requests/day per model. One trader message sends ~4,200 tokens per model call, 2–3
+  calls — so the whole app handles about **one message a minute**, and each reply takes
+  30–70 s while Groq holds requests back. Upgrade to Groq's paid (Developer) tier before
+  inviting traders; replies then take a few seconds.
 - Set a spending limit / alert so there are no surprises. Check Groq's pricing page for
   current per-token and per-audio-minute rates; 5 traders will cost very little.
 - If the provider refuses calls for billing reasons, traders get "busy, try again

@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import business_today
+from config import LooseDate, business_today
 from db import TransactionORM, RepaymentAllocation
 from tools.contacts import save_contact
 from tools.formatting import format_naira
@@ -45,8 +45,8 @@ class TransactionInput(BaseModel):
     )
     direction: Literal["in", "out"]
     note: Optional[str] = None
-    date: Optional[date_type] = None
-    due_date: Optional[date_type] = Field(
+    date: LooseDate = None
+    due_date: LooseDate = Field(
         default=None, description="When the other party promised to pay what's still owed, if they said")
     party_phone: Optional[str] = Field(
         default=None, description="The party's phone number, only if the user gave it")

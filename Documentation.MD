@@ -150,7 +150,7 @@ and pre-login endpoints must not be dodgeable with a made-up cookie.
 | Setting | Used for | Default |
 |---|---|---|
 | `LLM_MODEL` | the agent; parsing forwarded alert text | `groq:openai/gpt-oss-120b` |
-| `VISION_MODEL` | reading alert screenshots (must accept images) | `groq:meta-llama/llama-4-scout-17b-16e-instruct` |
+| `VISION_MODEL` | reading alert screenshots (must accept images) | `groq:qwen/qwen3.8-27b` |
 | `TRANSCRIPTION_MODEL` | voice notes | `groq:whisper-large-v3` |
 
 Groq needs `GROQ_API_KEY`. Any of the three can be Gemini instead

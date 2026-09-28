@@ -23,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import llm
-from config import business_today
+from config import LooseDate, business_today
 from db import BankAlert, PartyAlias, TransactionORM
 from tools.contacts import name_key
 from tools.formatting import format_naira
@@ -45,7 +45,7 @@ Extract only what the text says:
 - amount in naira as a number (NGN10,000.00 → 10000). Ignore the account balance — never use it as the amount.
 - counterparty: the other person/business name exactly as shown (e.g. "MAMA CHIDI OKAFOR", "SHOPRITE IKEJA"),
   often inside the description/narration ("TRF FROM ...", "NIP/...", "POS PURCHASE ..."). Null if not shown.
-- narration: the description line, shortened. occurred_on: the date. reference: session/transaction reference if shown.
+- narration: the description line, shortened. occurred_on: the date as YYYY-MM-DD. reference: session/transaction reference if shown.
 - contains_secret: true if the text contains an OTP, PIN, password, full card number, or BVN.
 If it isn't a bank/POS alert at all, set is_alert false."""
 
@@ -63,7 +63,7 @@ class ParsedAlert(BaseModel):
     amount: float | None = None
     counterparty: str | None = None
     narration: str | None = None
-    occurred_on: date | None = None
+    occurred_on: LooseDate = None
     reference: str | None = None
     contains_secret: bool = False
 

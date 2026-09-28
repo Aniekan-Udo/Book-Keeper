@@ -5,7 +5,7 @@ env vars only — `provider:model`, as LangChain's init_chat_model takes them.
                          default groq:openai/gpt-oss-120b         (GROQ_API_KEY)
                          e.g.    google_genai:gemini-3.8-flash    (GOOGLE_API_KEY)
     VISION_MODEL         reading alert screenshots; must accept images
-                         default groq:meta-llama/llama-4-scout-17b-16e-instruct
+                         default groq:qwen/qwen3.8-27b
     TRANSCRIPTION_MODEL  voice notes (see tools/transcribe.py)
                          default groq:whisper-large-v3  — Groq's speech-to-text API
                          or a chat model that accepts audio, e.g. google_genai:gemini-3.8-flash
@@ -24,7 +24,7 @@ from langchain_core.rate_limiters import InMemoryRateLimiter
 load_dotenv()
 
 DEFAULT_MODEL = "groq:openai/gpt-oss-120b"
-DEFAULT_VISION_MODEL = "groq:meta-llama/llama-4-scout-17b-16e-instruct"
+DEFAULT_VISION_MODEL = "groq:qwen/qwen3.8-27b"
 DEFAULT_TRANSCRIPTION_MODEL = "groq:whisper-large-v3"
 
 

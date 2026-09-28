@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import GenerateDate
+from config import GenerateDate, LooseDate
 from db import TransactionORM, User
 from tools import alerts, debt_collection, statements
 from tools.contacts import save_contact
@@ -20,8 +20,8 @@ from tools.recievables import get_recievables as get_receivables, get_payables
 
 
 class TransactionQuery(BaseModel):
-    start_date: Optional[date_type] = None
-    end_date: Optional[date_type] = None
+    start_date: LooseDate = None
+    end_date: LooseDate = None
     amount: Optional[float] = None
     item_or_party: Optional[str] = Field(default=None, description='Free-text hint, e.g. "fuel", "Sarah"')
     type: Optional[Literal["sale", "expense", "loan_taken", "loan_given", "debt_repayment"]] = None
@@ -37,8 +37,8 @@ class Correction(BaseModel):
     quantity: Optional[float] = None
     unit: Optional[str] = None
     note: Optional[str] = None
-    date: Optional[date_type] = None
-    due_date: Optional[date_type] = None
+    date: LooseDate = None
+    due_date: LooseDate = None
 
 
 _QUERY_LIMIT = 20
@@ -129,8 +129,8 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
     @tool
     async def generate_report_tool(
             report_type: Literal["pnl", "expenses", "receivables", "payables"],
-            start_date: Optional[date_type] = None,
-            end_date: Optional[date_type] = None,
+            start_date: LooseDate = None,
+            end_date: LooseDate = None,
     ) -> dict:
         """Use this when the user asks for their profit/PnL, expenses, what people owe
         them (receivables) or what they owe others (payables). Convert relative time
@@ -205,8 +205,8 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
     @tool
     async def customer_statement_tool(
             party: str,
-            start_date: Optional[date_type] = None,
-            end_date: Optional[date_type] = None,
+            start_date: LooseDate = None,
+            end_date: LooseDate = None,
             share_link: bool = True,
     ) -> dict:
         """Use this when the user wants a statement / record of everything with one customer
