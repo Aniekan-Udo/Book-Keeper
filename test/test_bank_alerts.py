@@ -319,7 +319,7 @@ async def test_image_is_sent_to_the_model_as_an_image(monkeypatch):
         def with_structured_output(self, schema):
             return FakeStructured()
 
-    monkeypatch.setattr(alerts.llm, "get_transcription_model", lambda: FakeModel())
+    monkeypatch.setattr(alerts.llm, "get_vision_model", lambda: FakeModel())
     assert await alerts.read_alert_image(b"\x89PNG data", "image/png") == "Credit Alert NGN10,000"
     system, human = captured["messages"]
     assert "Never transcribe account balances" in system.content
@@ -328,5 +328,5 @@ async def test_image_is_sent_to_the_model_as_an_image(monkeypatch):
 
 
 async def test_unsupported_image_type_is_not_sent_to_the_model(monkeypatch):
-    monkeypatch.setattr(alerts.llm, "get_transcription_model", lambda: pytest.fail("model should not be called"))
+    monkeypatch.setattr(alerts.llm, "get_vision_model", lambda: pytest.fail("model should not be called"))
     assert await alerts.read_alert_image(b"GIF89a", "image/gif") is None

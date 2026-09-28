@@ -5,14 +5,18 @@ are stored in conversation memory, can be echoed back so the user can catch a
 mishearing, and go through exactly the same path — and evals — as typed messages.
 """
 import base64
+import os
 from typing import Literal
+
+import httpx
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 import llm
 
-# what Gemini accepts, keyed by what WhatsApp sends (parameters like "; codecs=opus" stripped)
+# what the transcription models accept, keyed by what WhatsApp sends (parameters like
+# "; codecs=opus" stripped)
 SUPPORTED_AUDIO = {
     "audio/ogg": "audio/ogg",
     "audio/opus": "audio/ogg",
@@ -57,12 +61,56 @@ def normalize_mime(mime_type: str) -> str:
 
 
 async def transcribe(audio: bytes, mime_type: str) -> Transcript:
-    model = llm.get_transcription_model().with_structured_output(Transcript)
+    model_name = llm.transcription_model_name()
+    if model_name.startswith("groq:"):
+        return await _transcribe_with_groq_whisper(audio, mime_type, model_name.removeprefix("groq:"))
+    return await _transcribe_with_chat_model(audio, mime_type)
+
+
+async def _transcribe_with_chat_model(audio: bytes, mime_type: str) -> Transcript:
+    """A multimodal chat model (e.g. Gemini) listens to the audio and fills in Transcript."""
+    model = llm.get_audio_chat_model().with_structured_output(Transcript)
     message = HumanMessage(content=[
         {"type": "text", "text": "Transcribe this voice note."},
         {"type": "audio", "base64": base64.b64encode(audio).decode(), "mime_type": normalize_mime(mime_type)},
     ])
     return await model.ainvoke([SystemMessage(content=INSTRUCTIONS), message])
+
+
+# ── Groq Whisper (speech-to-text API, not a chat model) ──────────────────────
+
+GROQ_AUDIO_URL = "https://api.groq.com/openai/v1/audio"
+# Whisper picks the file type from the name
+_EXTENSION = {"audio/ogg": "ogg", "audio/mp3": "mp3", "audio/aac": "m4a", "audio/wav": "wav", "audio/flac": "flac"}
+# nudges spelling towards how traders talk and write amounts
+WHISPER_PROMPT = ("Nigerian trader keeping business records, in English or Pidgin: I sell 3 bags rice to Emeka, "
+                  "45k, he pay 30k, balance, Mama Chidi, Alhaji, naira.")
+# Whisper's language names → ours; Whisper has no Pidgin (it hears it as English) and no Igbo
+_LANGUAGES = {"english": "english", "yoruba": "yoruba", "hausa": "hausa"}
+
+
+async def _transcribe_with_groq_whisper(audio: bytes, mime_type: str, model: str) -> Transcript:
+    mime = normalize_mime(mime_type)
+    headers = {"Authorization": f"Bearer {os.environ['GROQ_API_KEY']}"}
+    upload = {"file": (f"voice-note.{_EXTENSION.get(mime, 'ogg')}", audio, mime)}
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.post(f"{GROQ_AUDIO_URL}/transcriptions", headers=headers, files=upload, data={
+            "model": model, "response_format": "verbose_json", "temperature": "0", "prompt": WHISPER_PROMPT,
+        })
+        response.raise_for_status()
+        heard = response.json()
+        text = (heard.get("text") or "").strip()
+        language = _LANGUAGES.get((heard.get("language") or "").lower(), "other")
+
+        english = None
+        if text and language != "english":
+            # Whisper's translate endpoint turns the same audio into English
+            translated = await client.post(f"{GROQ_AUDIO_URL}/translations", headers=headers, files=upload,
+                                           data={"model": model, "response_format": "json", "temperature": "0"})
+            translated.raise_for_status()
+            english = (translated.json().get("text") or "").strip() or None
+
+    return Transcript(audible=bool(text), language=language, transcript=text, english=english)
 
 
 def as_message(t: Transcript) -> str:

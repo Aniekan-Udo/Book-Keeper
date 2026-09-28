@@ -76,7 +76,7 @@ class ImageReading(BaseModel):
 # ── reading ──────────────────────────────────────────────────────────────────
 
 async def parse_alert_text(text: str) -> ParsedAlert:
-    model = llm.get_transcription_model().with_structured_output(ParsedAlert)
+    model = llm.get_chat_model().with_structured_output(ParsedAlert)
     return await model.ainvoke([SystemMessage(content=PARSE_INSTRUCTIONS), HumanMessage(content=text)])
 
 
@@ -85,7 +85,7 @@ async def read_alert_image(data: bytes, mime_type: str) -> str | None:
     mime = mime_type.split(";")[0].strip().lower()
     if mime not in SUPPORTED_IMAGES:
         return None
-    model = llm.get_transcription_model().with_structured_output(ImageReading)
+    model = llm.get_vision_model().with_structured_output(ImageReading)
     reading = await model.ainvoke([SystemMessage(content=IMAGE_INSTRUCTIONS), HumanMessage(content=[
         {"type": "text", "text": "Read this image."},
         {"type": "image", "base64": base64.b64encode(data).decode(), "mime_type": mime},

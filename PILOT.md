@@ -15,17 +15,17 @@ mistake twice a week and fix it.
 
 ## Part A — Set up (you, ~1 day)
 
-### 1. Google: turn on billing
-The free tier allows **5 model requests per minute and 20 per day**; one trader message
-uses 2–3. That's not enough even for testing.
+### 1. Model provider (Groq): billing in good standing
+One trader message uses 2–3 model calls, plus Whisper for voice notes. Free tiers are
+too small even for testing.
 
-- In Google AI Studio → your project → set up billing (moves the key to the paid tier).
-- On **prepaid** billing, add credit and keep it topped up: when it runs out, Google refuses
-  every call (402). Traders then get "busy, try again shortly", and the server log says
-  `account credit is used up. Top up billing now.`
-- Set a **budget alert** in Google Cloud Billing (e.g. $20/month) so there are no surprises.
-- Flash models cost a fraction of a cent per message; 5 traders will cost very little.
-  Check the current Gemini pricing page for the exact rate.
+- [console.groq.com](https://console.groq.com) → Settings → Billing: a working payment
+  method and nothing overdue. An overdue account is blocked outright.
+- Set a spending limit / alert so there are no surprises. Check Groq's pricing page for
+  current per-token and per-audio-minute rates; 5 traders will cost very little.
+- If the provider refuses calls for billing reasons, traders get "busy, try again
+  shortly" and the server log says `account credit is used up. Top up billing now.`
+- Switching provider (e.g. to Gemini) is only `.env` changes — see `llm.py`.
 
 ### 2. A server with HTTPS
 Meta only sends WhatsApp messages to an HTTPS address that's always on.
@@ -48,8 +48,7 @@ Meta only sends WhatsApp messages to an HTTPS address that's always on.
   POSTGRES_USER=bookkeeper
   POSTGRES_PASSWORD=<long random>     # python -c "import secrets; print(secrets.token_urlsafe(24))"
   POSTGRES_DB=bookkeeper
-  LLM_MODEL=google_genai:gemini-3.8-flash
-  GOOGLE_API_KEY=<your key>
+  GROQ_API_KEY=<your key>          # models default to Groq, see .env.example
   PRIVACY_POLICY_URL=<step 5>
   # WHATSAPP_* from step 3
   ```

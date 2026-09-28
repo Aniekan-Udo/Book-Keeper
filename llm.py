@@ -1,14 +1,17 @@
-"""The one place that decides which chat model the bookkeeper uses.
+"""The one place that decides which models the bookkeeper uses. Switch providers with
+env vars only — `provider:model`, as LangChain's init_chat_model takes them.
 
-Switch providers with env vars only, no code changes:
-    LLM_MODEL=google_genai:gemini-3.8-flash      (default; needs GOOGLE_API_KEY or GEMINI_API_KEY)
-    LLM_MODEL=anthropic:claude-sonnet-5          (needs ANTHROPIC_API_KEY + `uv add langchain-anthropic`)
+    LLM_MODEL            the agent, and parsing forwarded alert text
+                         default groq:openai/gpt-oss-120b         (GROQ_API_KEY)
+                         e.g.    google_genai:gemini-3.8-flash    (GOOGLE_API_KEY)
+    VISION_MODEL         reading alert screenshots; must accept images
+                         default groq:meta-llama/llama-4-scout-17b-16e-instruct
+    TRANSCRIPTION_MODEL  voice notes (see tools/transcribe.py)
+                         default groq:whisper-large-v3  — Groq's speech-to-text API
+                         or a chat model that accepts audio, e.g. google_genai:gemini-3.8-flash
 
-Voice notes and alert screenshots use TRANSCRIPTION_MODEL (default: the same Gemini
-model), which must accept audio and images.
-
-LLM_REQUESTS_PER_MINUTE (optional) paces all model calls from this process to stay under
-a provider quota — e.g. 4 on Gemini's free tier (5/min). Calls wait rather than fail.
+LLM_REQUESTS_PER_MINUTE (optional) paces all chat-model calls from this process to stay
+under a provider quota. Calls wait rather than fail.
 """
 import os
 from functools import lru_cache
@@ -20,7 +23,9 @@ from langchain_core.rate_limiters import InMemoryRateLimiter
 
 load_dotenv()
 
-DEFAULT_MODEL = "google_genai:gemini-3.8-flash"
+DEFAULT_MODEL = "groq:openai/gpt-oss-120b"
+DEFAULT_VISION_MODEL = "groq:meta-llama/llama-4-scout-17b-16e-instruct"
+DEFAULT_TRANSCRIPTION_MODEL = "groq:whisper-large-v3"
 
 
 @lru_cache(maxsize=1)
@@ -28,12 +33,11 @@ def _rate_limiter() -> InMemoryRateLimiter | None:
     rpm = os.getenv("LLM_REQUESTS_PER_MINUTE")
     if not rpm:
         return None
-    # one shared bucket, so chat and transcription together stay under the limit
+    # one shared bucket, so all model calls together stay under the limit
     return InMemoryRateLimiter(requests_per_second=float(rpm) / 60, check_every_n_seconds=0.2, max_bucket_size=1)
 
 
-def _build(env_var: str, timeout: int) -> BaseChatModel:
-    model = os.getenv(env_var, DEFAULT_MODEL)
+def _build(model: str, timeout: int) -> BaseChatModel:
     if model.startswith("google_genai:") and not os.getenv("GOOGLE_API_KEY") and os.getenv("GEMINI_API_KEY"):
         os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
     return init_chat_model(model, temperature=0, timeout=timeout, max_retries=2, rate_limiter=_rate_limiter())
@@ -41,11 +45,21 @@ def _build(env_var: str, timeout: int) -> BaseChatModel:
 
 @lru_cache(maxsize=1)
 def get_chat_model() -> BaseChatModel:
-    return _build("LLM_MODEL", timeout=30)
+    return _build(os.getenv("LLM_MODEL", DEFAULT_MODEL), timeout=30)
 
 
 @lru_cache(maxsize=1)
-def get_transcription_model() -> BaseChatModel:
-    """Model that listens to voice notes and reads screenshots. Separate from the chat
-    model because it must accept audio and images."""
-    return _build("TRANSCRIPTION_MODEL", timeout=60)
+def get_vision_model() -> BaseChatModel:
+    """Reads alert screenshots. Separate from the chat model because it must accept images."""
+    return _build(os.getenv("VISION_MODEL", DEFAULT_VISION_MODEL), timeout=60)
+
+
+def transcription_model_name() -> str:
+    return os.getenv("TRANSCRIPTION_MODEL", DEFAULT_TRANSCRIPTION_MODEL)
+
+
+@lru_cache(maxsize=1)
+def get_audio_chat_model() -> BaseChatModel:
+    """A chat model that listens to audio directly (e.g. Gemini) — used for voice notes when
+    TRANSCRIPTION_MODEL isn't a Groq Whisper model."""
+    return _build(transcription_model_name(), timeout=60)

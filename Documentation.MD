@@ -144,9 +144,17 @@ and pre-login endpoints must not be dodgeable with a made-up cookie.
 
 ## 4. The LLM
 
-`llm.py` builds the chat model from `LLM_MODEL` (`provider:model`, default
-`google_genai:gemini-3.8-flash`) via LangChain's `init_chat_model`, so switching provider
-is a config change. `tools/router.py` runs the agent with a circuit breaker: after 3
+`llm.py` picks three models by config (`provider:model`, via LangChain's
+`init_chat_model`), so switching provider is a config change:
+
+| Setting | Used for | Default |
+|---|---|---|
+| `LLM_MODEL` | the agent; parsing forwarded alert text | `groq:openai/gpt-oss-120b` |
+| `VISION_MODEL` | reading alert screenshots (must accept images) | `groq:meta-llama/llama-4-scout-17b-16e-instruct` |
+| `TRANSCRIPTION_MODEL` | voice notes | `groq:whisper-large-v3` |
+
+Groq needs `GROQ_API_KEY`. Any of the three can be Gemini instead
+(`google_genai:gemini-3.8-flash`, with `GOOGLE_API_KEY`). `tools/router.py` runs the agent with a circuit breaker: after 3
 consecutive failures it fails fast for 2 minutes instead of making every user wait on
 timeouts. Provider rate limits surface as a 503 with a "try again shortly" message.
 
@@ -225,15 +233,22 @@ Protection Act 2023 expects people to be told how their data is used when it's c
 
 Voice notes are downloaded from Meta (media id → short-lived URL, both with the access
 token; capped at ~400 KB, about 2–3 minutes), transcribed by `TRANSCRIPTION_MODEL`
-(default Gemini, which accepts audio) into structured output — transcript in the
-language spoken, language, English translation for Yoruba/Hausa/Igbo, and whether any
-speech was audible — then handled exactly like a typed message prefixed `(voice note)`.
+into a transcript in the language spoken, the language, an English translation when it
+isn't English, and whether any speech was audible — then handled exactly like a typed
+message prefixed `(voice note)`.
+
+- **Groq Whisper** (default, `groq:whisper-large-v3`): Groq's speech-to-text API, with a
+  prompt that nudges spelling towards traders' vocabulary ("45k", "balance", "Mama
+  Chidi"); non-English speech also goes through Whisper's translate-to-English. Whisper
+  has no Pidgin (it hears it as English, which is fine) and no Igbo.
+- **A chat model that listens** (e.g. `google_genai:gemini-3.8-flash`): reads the audio
+  directly and follows instructions (amounts as "15k", keep Pidgin as spoken, Igbo).
 The reply starts with `🎤 “what I heard”` so a misheard name or amount is obvious.
 The prompt tells the assistant to confirm implausible names/amounts from voice notes
 rather than record a guess.
 
 Formats: WhatsApp's `audio/ogg` (Opus), plus mp3, aac, wav, flac. `audio/amr` isn't
-supported by Gemini and gets a "record it as a normal voice note" reply.
+supported and gets a "record it as a normal voice note" reply.
 
 Check transcription against real recordings:
 
@@ -323,7 +338,7 @@ Traders forward or paste alerts (SMS, email, app notification) or send a screens
 one. Strictly read-only: we parse what they choose to send — no bank connections, no
 logins, and the assistant never asks for PINs, OTPs, BVNs or card numbers.
 
-The model (`TRANSCRIPTION_MODEL`, which also reads screenshots) only extracts fields:
+The model (`LLM_MODEL` for text, `VISION_MODEL` for screenshots) only extracts fields:
 credit/debit, amount, counterparty, narration, date, reference, and whether it's a
 sender's "transfer successful" receipt or contains a secret. What happens next is
 decided in code:
@@ -356,7 +371,7 @@ doesn't record a sale twice.
 ## 7. Running it
 
 ```bash
-cp .env.example .env         # fill in GOOGLE_API_KEY, Postgres credentials, WhatsApp settings
+cp .env.example .env         # fill in GROQ_API_KEY, Postgres credentials, WhatsApp settings
 docker compose up --build    # runs migrate.py, then serves on :8001
 ```
 

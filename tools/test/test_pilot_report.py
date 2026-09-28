@@ -77,6 +77,8 @@ async def test_old_activity_is_outside_the_window(db):
     ("Error calling model 'gemini-3.8-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED.", "rate_limited"),
     ("503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand.'}}",
      "overloaded"),
+    ("Error code: 400 - {'error': {'message': 'Organization has been restricted because of overdue payment(s).', "
+     "'type': 'invalid_request_error', 'code': 'organization_delinquent'}}", "out_of_credit"),  # Groq
     ("Error calling model: 400 INVALID_ARGUMENT. API key not valid.", None),
     ("tool raised KeyError: 'amount'", None),
 ])

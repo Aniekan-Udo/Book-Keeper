@@ -176,7 +176,8 @@ async def test_transcribe_sends_audio_to_the_model(monkeypatch):
             captured["schema"] = schema
             return FakeStructured()
 
-    monkeypatch.setattr(voice.llm, "get_transcription_model", lambda: FakeModel())
+    monkeypatch.setenv("TRANSCRIPTION_MODEL", "google_genai:gemini-3.8-flash")  # the listen-directly path
+    monkeypatch.setattr(voice.llm, "get_audio_chat_model", lambda: FakeModel())
 
     result = await voice.transcribe(b"OggS voice", "audio/ogg; codecs=opus")
 
@@ -205,3 +206,64 @@ def test_supported_audio_types(given, expected):
 def test_unsupported_audio_types(given):
     with pytest.raises(voice.UnsupportedAudio):
         voice.normalize_mime(given)
+
+
+# ---------- Groq Whisper (speech-to-text API) ----------
+
+@pytest.fixture
+def whisper(monkeypatch):
+    """Fake Groq audio API. Set `whisper.heard` to the transcription response JSON."""
+    class Whisper:
+        requests: list[httpx.Request] = []
+        heard = {"text": "I sell 3 bags rice to Emeka 45k", "language": "english"}
+        translation = {"text": "I sold three bags of rice to Emeka, 45k"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        Whisper.requests.append(request)
+        if request.url.path.endswith("/transcriptions"):
+            return httpx.Response(200, json=Whisper.heard)
+        return httpx.Response(200, json=Whisper.translation)
+
+    Whisper.requests = []
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
+    monkeypatch.setenv("TRANSCRIPTION_MODEL", "groq:whisper-large-v3")
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(voice.httpx, "AsyncClient",
+                        lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
+    return Whisper
+
+
+async def test_whisper_transcription_request(whisper):
+    result = await voice.transcribe(b"OggS voice", "audio/ogg; codecs=opus")
+
+    assert result == Transcript(audible=True, language="english", transcript="I sell 3 bags rice to Emeka 45k")
+    [request] = whisper.requests  # English: no translation call
+    assert str(request.url) == "https://api.groq.com/openai/v1/audio/transcriptions"
+    assert request.headers["authorization"] == "Bearer gsk_test"
+    body = request.content
+    assert b'filename="voice-note.ogg"' in body and b"OggS voice" in body
+    assert b"whisper-large-v3" in body and b"verbose_json" in body
+    assert b"Nigerian trader" in body  # the vocabulary prompt
+
+
+async def test_whisper_translates_yoruba(whisper):
+    whisper.heard = {"text": "Mo ta apo iresi meta fun Emeka", "language": "yoruba"}
+    result = await voice.transcribe(b"OggS voice", "audio/ogg")
+    assert result.language == "yoruba"
+    assert result.english == "I sold three bags of rice to Emeka, 45k"
+    assert [r.url.path for r in whisper.requests] == ["/openai/v1/audio/transcriptions",
+                                                     "/openai/v1/audio/translations"]
+    assert voice.as_message(result).endswith("(English: I sold three bags of rice to Emeka, 45k)")
+
+
+async def test_whisper_silence_is_inaudible(whisper):
+    whisper.heard = {"text": "  ", "language": "english"}
+    result = await voice.transcribe(b"OggS voice", "audio/ogg")
+    assert result.audible is False
+    assert len(whisper.requests) == 1  # nothing to translate
+
+
+async def test_whisper_language_it_does_not_know_is_other(whisper):
+    whisper.heard = {"text": "Ahịa m dị mma", "language": "swahili"}  # e.g. Igbo misheard
+    result = await voice.transcribe(b"OggS voice", "audio/ogg")
+    assert result.language == "other" and result.english is not None

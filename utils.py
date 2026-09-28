@@ -54,6 +54,8 @@ async def store_response(db: AsyncSession, key: str, user_id: int, response: dic
 
 
 _STATUS_IN_MESSAGE = re.compile(r"\b(402|429|503)\b")
+# billing problems some providers report with other status codes
+_BILLING_MARKERS = ("organization_delinquent", "overdue payment", "prepayment credits are depleted")
 
 
 def provider_problem(exc: Exception) -> str | None:
@@ -61,8 +63,10 @@ def provider_problem(exc: Exception) -> str | None:
     importing each SDK's exception types. Checks the status code attributes and, since some
     SDKs (e.g. langchain-google-genai) wrap errors, the status in the message too.
 
-    Returns "rate_limited" (429), "out_of_credit" (402: prepaid credit used up),
-    "overloaded" (503), or None."""
+    Returns "rate_limited" (429), "out_of_credit" (402: prepaid credit used up, or Groq's
+    400 "organization_delinquent" for overdue payment), "overloaded" (503), or None."""
+    if any(marker in str(exc) for marker in _BILLING_MARKERS):
+        return "out_of_credit"
     status = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
     if status is None:
         match = _STATUS_IN_MESSAGE.search(str(exc))
