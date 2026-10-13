@@ -54,11 +54,11 @@ and which agent writes it.
 | Fri 18 | "Emeka pay the 45k cash" | Repayment ₦45,000 | #E3 **kept** (curator) |
 | Sat 19 | *Voice note:* "Bola buy 2 bags rice, cash" → transcribed **"Bolu"** | Cash sale ₦90,000 → "Bolu" | New party Bolu (curator), a **wrong memory** |
 | Sat 19 | "Bolu na Bola, the voice thing spell am wrong" | Sale's party → Bola | Bolu merged into Bola as alias; source: this message (curator) |
-| Sat 19 | *(curator, after the third identical order)* | — | Fact `usual_order` → Bola: 2 bags rice, cash, confidence medium; sources: Sep 5, 12, 19 |
+| Sat 19 | *(curator, after the third identical order)* | — | `usual_order` → Bola: 2 bags rice, cash, `inferred`; sources: the Sep 5, 12, 19 sales |
 | Mon 21 | "Emeka take 3 tins oil, 36k. He go pay Thursday" | Credit sale ₦36,000, due Sep 24 | Promise #E4 due Sep 24 (curator) |
 | Tue 22 | "Iya Toyin bring the remaining 20k cash" | Repayment ₦20,000 | — |
 | Thu 24 | "Mama C take 1 bag rice" | Credit sale ₦45,000 → **Mama Chidi** | Alias `Mama C` (curator). No promise stated |
-| Fri 25 | *Forwards alert:* credit ₦45,000 from `OKAFOR CHINYERE MARY` | Repayment ₦45,000 | Matched by alias. Curator adds fact "usually pays on Friday", confidence medium; sources #M1, #M2, this |
+| Fri 25 | *Forwards alert:* credit ₦45,000 from `OKAFOR CHINYERE MARY` | Repayment ₦45,000 | Matched by alias. Nothing new stored: "usually pays on Friday" is now visible to a query over her payments (Sep 4, 11, 25) |
 | Fri 25 | *(Collector daily run)* | — | #E4 **broken** (collector) |
 | Sat 26 | "Wetin you know about Bola?" | — | *Read only:* usual order, alias Bolu, each with its source message |
 | Tue 29 | "Mama Chidi take 1 bag beans" | Credit sale ₦30,000 | — |

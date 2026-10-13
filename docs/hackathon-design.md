@@ -48,8 +48,8 @@ Agents never message each other. They share state only through the graph.
 
 The curator runs off the request path so the Recorder stays fast and cheap.
 
-Fact kinds are a fixed list, not free text: `alias`, `promise`, `usual_order`,
-`do_not_remind`, `role`.
+Memory is five fixed types, not free text: `alias`, `promise`, `usual_order`,
+`do_not_remind`, `role`. See "Memory types" below.
 
 The Collector only ranks and drafts. Sending still needs the trader's confirmation, and
 nothing ever moves money (see the project rule: record, report, remind only).
@@ -57,12 +57,13 @@ nothing ever moves money (see the project rule: record, report, remind only).
 ## Graph model (first draft)
 
 ```
-(:Trader {id})
-(:Party {key, name})            -[:CUSTOMER_OF|SUPPLIER_OF]-> (:Trader)
-(:Alias {text})                 -[:REFERS_TO]-> (:Party)       // "Chidi's mum", "MAMA CHIDI OKAFOR"
+// one graph per trader: trader_<user_id>
+(:Trader)
+(:Party {key, name})            -[:CUSTOMER_OF|SUPPLIER_OF {valid_from, valid_to, confidence}]-> (:Trader)
+(:Alias {key, text, kind})      -[:REFERS_TO {valid_from, valid_to}]-> (:Party)
 (:Debt {pg_id})                 -[:OWED_BY]-> (:Party)         // amounts stay in Postgres
-(:Promise {due, status: open|kept|broken, paid_fraction}) -[:FOR]-> (:Debt), -[:MADE_BY]-> (:Party)
-(:Fact {text, kind, confidence, valid_from, valid_to}) -[:ABOUT]-> (:Party|:Trader)
+(:Promise {due, status, paid_fraction, said}) -[:FOR]-> (:Debt), -[:MADE_BY]-> (:Party)
+(:Fact {kind, ...per kind, confidence, valid_from, valid_to}) -[:ABOUT]-> (:Party)
 (:Message {turn_id})            <-[:LEARNED_FROM]- (:Fact|:Promise|:Alias)
 (:Agent {name})                 <-[:WRITTEN_BY]- (:Fact|:Promise|:Alias)
 (:Reminder {pg_id})             -[:SENT_TO]-> (:Party), -[:BECAUSE]-> (:Promise|:Fact)
@@ -81,7 +82,7 @@ nothing ever moves money (see the project rule: record, report, remind only).
 Collector ranking, sketch:
 
 ```cypher
-MATCH (p:Party)-[:CUSTOMER_OF]->(:Trader {id: $t})
+MATCH (p:Party)-[:CUSTOMER_OF]->(:Trader)
 WHERE NOT EXISTS {
   MATCH (f:Fact {kind: 'do_not_remind'})-[:ABOUT]->(p) WHERE f.valid_to IS NULL
 }
@@ -91,6 +92,85 @@ RETURN p.name,
        count(CASE WHEN pr.status = 'kept' THEN 1 END)   AS kept
 ORDER BY broken DESC
 ```
+
+## Memory types
+
+### Rules for every type
+
+- **One graph per trader** (`trader_<user_id>`). One trader's agents can never read another
+  trader's memory, and queries don't need a trader filter. The STOP opt-out list stays in
+  Postgres because it applies across all traders.
+- **Every item links to its source** (`LEARNED_FROM` a message, or the ledger row it came
+  from) and to the agent that wrote it (`WRITTEN_BY`).
+- **Confidence is `stated` or `inferred`**, not a number. `stated` = the trader said it.
+  `inferred` = worked out from a pattern. Inferred items are always confirmed with the trader
+  before they change what gets recorded.
+- **Correct vs forget.** "That's wrong" closes the item (`valid_to` = now) and keeps the
+  history. "Forget what you know about X" deletes the items for real (third-party privacy).
+- **The curator never writes Cypher.** It returns a list of operations (`add_alias`,
+  `add_promise`, `set_usual_order`, `set_do_not_remind`, `lift_do_not_remind`, `set_role`,
+  `close_role`, `correct`, `forget`). Code validates them and runs fixed queries.
+- **Not stored:** anything outside these five types (family, health, gossip), balances or
+  amounts owed (Postgres), phone numbers (Postgres `contacts`).
+- **Derived, not stored:** patterns the graph can compute, e.g. "usually pays on Friday" is a
+  query over kept promises and payment dates, not a fact the LLM writes.
+
+### 1. `alias`: another name for a party
+
+| | |
+|---|---|
+| **Shape** | `(:Alias {key, text, kind})-[:REFERS_TO {valid_from, valid_to}]->(:Party)`; `kind` = `nickname` / `bank_name` / `transcription` |
+| **Written by** | Curator (nickname, transcription fix); Alert matcher (bank name, after the trader confirms who paid) |
+| **When** | A new name is used for someone who already exists, or the trader confirms a bank name |
+| **Rules** | `key` = lower-cased, trimmed, spaces collapsed. A key points to one current party per trader. Ask when more than one party could match; link silently when only one can. Never link a name that is already its own party (Chidi is not Mama Chidi) |
+| **Read by** | Recorder (resolve names before recording), Alert matcher (match payer) |
+| **Correction** | Close the `REFERS_TO` edge; if the right party is given, add a new edge |
+
+Replaces today's `PartyAlias` table, which keeps working until the alert matcher moves over.
+
+### 2. `promise`: a date someone said they'd pay
+
+| | |
+|---|---|
+| **Shape** | `(:Promise {due, status, paid_fraction, said})-[:FOR]->(:Debt)`, `-[:MADE_BY]->(:Party)`; `status` = `open` / `kept` / `broken` / `replaced`; `said` = the words used ("he go pay Monday") |
+| **Written by** | Curator creates; Alert matcher or curator marks `kept`; Collector marks `broken` |
+| **When** | Only when the trader states a date for a debt. Never inferred. Relative dates ("Monday", "next week Tuesday") resolve against the message date |
+| **Rules** | Kept = debt cleared by the due date. Broken = due date passed with a balance left (`paid_fraction` records how much was paid). A new date for the same debt creates a new promise: if the old one wasn't due yet it becomes `replaced` (doesn't count against them); if it was already overdue it stays `broken`. Also sets the ledger row's `due_date`, as today |
+| **Read by** | Collector (ranking, reminders), "why?" |
+| **Correction** | Close it (wrong date or wrong person) and create the right one |
+
+### 3. `usual_order`: what "the usual" means for a customer
+
+| | |
+|---|---|
+| **Shape** | `(:Fact {kind: 'usual_order', items: [{item, quantity, unit}], last_amount, payment: cash/credit})-[:ABOUT]->(:Party)` |
+| **Written by** | Curator |
+| **When** | `stated`: the trader says what the usual is. `inferred`: the same items and quantities three sales in a row, counted by a query, not judged by the LLM |
+| **Rules** | One current usual order per party; a new one closes the old. "The usual" is **always confirmed** before recording ("2 bags rice, ₦90,000, cash. Record it?"), since prices change. `last_amount` is only a suggestion |
+| **Read by** | Recorder |
+| **Correction** | Close it; the next pattern of three (or a statement) sets a new one |
+
+### 4. `do_not_remind`: the trader doesn't want someone chased
+
+| | |
+|---|---|
+| **Shape** | `(:Fact {kind: 'do_not_remind', said, until})-[:ABOUT]->(:Party)`; `until` is optional ("no remind am till month end") |
+| **Written by** | Curator |
+| **When** | Only when the trader says so. Never inferred |
+| **Rules** | Collector leaves them off the chase list and says why. If the trader asks to remind them anyway, ask once: "You said on Sep 8 you'd talk to him yourself. Still send?" Separate from STOP opt-outs, which come from the customer, apply across traders, and live in Postgres |
+| **Read by** | Collector |
+| **Lifting** | "You fit remind Pastor John now", or `until` passes: `valid_to` set |
+
+### 5. `role`: customer, supplier, or both
+
+| | |
+|---|---|
+| **Shape** | `(:Party)-[:CUSTOMER_OF / :SUPPLIER_OF {valid_from, valid_to, confidence}]->(:Trader)` |
+| **Written by** | Sync code (`inferred` customer from a sale or loan given); curator (`stated`, from what the trader says) |
+| **When** | First sale to someone: customer. Supplier only when the trader says so or clearly buys stock from them ("I buy 10 tins from Musa"). Paying for labour (Chidi carrying bags) gives no role |
+| **Rules** | Both roles can be current at once. A statement ("Musa no dey buy from me again") closes a role; a stated role is never overwritten by an inferred one |
+| **Read by** | Recorder (is "Musa bring 10 tins" a purchase or a sale?), Collector (wording; suppliers aren't chased) |
+| **Correction** | Close the wrong role, open the right one |
 
 ## Orchestration (LangGraph + FalkorDB)
 
