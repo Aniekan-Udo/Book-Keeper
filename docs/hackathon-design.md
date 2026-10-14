@@ -217,7 +217,11 @@ Considered and not used as the core:
 | `langchain-falkordb` `FalkorDBGraph` | Docs don't mention async; the app is fully async |
 | `langchain-falkordb` `FalkorDBSaver` (checkpointer) | Optional extra. Saves per-run state, not the memory being judged |
 | LLM-writes-Cypher (the pattern in FalkorDB's LangGraph docs) | Unpredictable queries; their examples build Cypher from strings; Rule 12 needs explainable queries |
-| Graphiti (`graphiti-core[falkordb]`) | Docs show OpenAI only (we use Groq); free-form extraction loses the fixed fact kinds and promise/`WRITTEN_BY` design; weakens the "new FalkorDB work" case |
+| Graphiti (`graphiti-core[falkordb]`) | Works with Groq and local embeddings (tested in a side project), but it's built for recall, not computed state: promise kept/broken, ranking and `paid_fraction` must be exact. Several model calls per message; queries live inside the library (Rule 12); weakens the "new FalkorDB work" case. **Stretch goal only**, see below |
+
+**Decision: custom design for the core.** If Day 3 finishes early, Graphiti may be added as
+a separate "tell me about…" recall layer in its own graph per trader (`recall_<user_id>`),
+never mixed with the core schema, and nothing in the core depends on it.
 
 ## Keeping the graph honest
 
@@ -256,7 +260,8 @@ Memory curator as a background task (facts, aliases, promises with sources; corr
 Recorder fetches graph context into its prompt.
 
 **Day 3 (Oct 17):** Collector ranking with reasons; Alert matcher on graph aliases, promises
-kept/broken; "why?" tool.
+kept/broken; "why?" tool. *Stretch, only if done early:* Graphiti recall layer in
+`recall_<user_id>`.
 
 **Day 4 (Oct 18):** Demo seed script; README with graph model and Cypher queries (Rule 10);
 deploy; demo video; blog post for the side prize if time allows.
