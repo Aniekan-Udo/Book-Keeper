@@ -310,3 +310,32 @@ async def test_full_rebuild_from_the_ledger(db_session, test_user, falkor, monke
     assert summary["parties"] == 2 and summary["debts"] == 1 and summary["removed"] == 1
     assert await rows(falkor, T1, "MATCH (p:Party) RETURN p.key ORDER BY p.key") == [["bola"], ["emeka"], ["ghost"]]
     assert await rows(falkor, T1, "MATCH (d:Debt)-[:WITH]->(p) RETURN p.key") == [["emeka"]]
+
+
+async def test_reads_are_retried_once_and_writes_never():
+    """A dropped connection fails one query; a read just tries again on a fresh one."""
+    from redis.exceptions import TimeoutError as RedisTimeout
+
+    class FlakyGraph:
+        name = "test_trader_x"
+
+        def __init__(self):
+            self.reads = self.writes = 0
+
+        async def ro_query(self, cypher, params=None, timeout=None):
+            self.reads += 1
+            if self.reads == 1:
+                raise RedisTimeout("Timeout reading from 127.0.0.1:6379")
+            return "ok"
+
+        async def query(self, cypher, params=None, timeout=None):
+            self.writes += 1
+            raise RedisTimeout("Timeout reading from 127.0.0.1:6379")
+
+    memory = FalkorGraphMemory(graph_prefix="test_trader_")
+    graph = FlakyGraph()
+    assert await memory._run(graph, "MATCH (n) RETURN n", {}, "read", read_only=True) == "ok"
+    assert graph.reads == 2
+    with pytest.raises(GraphMemoryError):
+        await memory._run(graph, "CREATE (n)", {}, "write")
+    assert graph.writes == 1

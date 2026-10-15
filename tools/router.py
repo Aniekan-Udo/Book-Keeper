@@ -1,3 +1,5 @@
+import asyncio
+import os
 import time
 
 from langchain.agents import create_agent
@@ -44,6 +46,17 @@ class CircuitBreaker:
 
 llm_breaker = CircuitBreaker()
 
+# The longest a trader waits for one agent run (all its model and tool calls) before being
+# told to try again. Without it, a provider that stalls (or keeps a request open) holds the
+# message, and the trader's per-user lock, for as long as it likes.
+TURN_TIMEOUT = float(os.getenv("LLM_TURN_TIMEOUT", "90"))
+
+
+def _model_slip(e: Exception) -> bool:
+    """The model wrote a tool call the provider couldn't parse (Groq: tool_use_failed). A
+    glitch in one generation, not an outage: worth one retry, and not a breaker failure."""
+    return "tool_use_failed" in str(e)
+
 
 async def handle_message(user_message: str, system_prompt: str, tools: list,
                          history: list[dict] | None = None, callbacks: list | None = None) -> dict:
@@ -55,12 +68,25 @@ async def handle_message(user_message: str, system_prompt: str, tools: list,
         raise LLMUnavailable("The assistant is temporarily unavailable. Please try again in a couple of minutes.")
 
     agent = create_agent(model=get_chat_model(), tools=tools, system_prompt=system_prompt)
+    messages = [*(history or []), {"role": "user", "content": user_message}]
+    # run_name becomes the trace name in Opik ("trader message" rather than "LangGraph")
+    config = {"callbacks": callbacks, "run_name": "trader message"} if callbacks else None
     try:
-        messages = [*(history or []), {"role": "user", "content": user_message}]
-        # run_name becomes the trace name in Opik ("trader message" rather than "LangGraph")
-        config = {"callbacks": callbacks, "run_name": "trader message"} if callbacks else None
-        result = await agent.ainvoke({"messages": messages}, config=config)
+        try:
+            result = await asyncio.wait_for(agent.ainvoke({"messages": messages}, config=config), TURN_TIMEOUT)
+        except Exception as e:
+            if not _model_slip(e):
+                raise
+            logger.warning("router.model_slip_retry", error=str(e)[:200])
+            result = await asyncio.wait_for(agent.ainvoke({"messages": messages}, config=config), TURN_TIMEOUT)
     except Exception as e:
+        if _model_slip(e):
+            logger.error("router.model_slip_again", error=str(e)[:300])
+            raise LLMUnavailable("I couldn't process that one. Could you say it another way?") from e
+        if isinstance(e, (asyncio.TimeoutError, TimeoutError)):
+            llm_breaker.record_failure()
+            logger.warning("router.turn_timeout", seconds=TURN_TIMEOUT)
+            raise LLMUnavailable("The assistant is busy right now. Please try again shortly.") from e
         llm_breaker.record_failure()
         problem = provider_problem(e)
         if problem == "out_of_credit":

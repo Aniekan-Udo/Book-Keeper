@@ -303,11 +303,14 @@ class FalkorGraphMemory:
     enabled = True
 
     def __init__(self, host: str = "127.0.0.1", port: int = 6379, password: str | None = None,
-                 timeout_seconds: float = 2.0, graph_prefix: str = "trader_"):
-        # short socket timeouts: graph work runs in the background, but a hung store must
-        # not pile up tasks forever
+                 timeout_seconds: float = 5.0, graph_prefix: str = "trader_"):
+        # Timeouts keep a hung store from piling up tasks. Keepalive plus a health check on
+        # connections idle for 30 s: a pooled connection left idle (e.g. across a laptop
+        # sleep, or by a NAT/Docker proxy dropping quiet TCP) is checked before reuse
+        # instead of timing out on the next query.
         self._client_kwargs = dict(host=host, port=port, password=password or None,
-                                   socket_timeout=timeout_seconds, socket_connect_timeout=timeout_seconds)
+                                   socket_timeout=timeout_seconds, socket_connect_timeout=timeout_seconds,
+                                   socket_keepalive=True, health_check_interval=30)
         self._db: FalkorDB | None = None  # built on first use, see _client()
         self._client_lock = asyncio.Lock()
         self._query_timeout_ms = int(timeout_seconds * 1000)
@@ -336,14 +339,22 @@ class FalkorGraphMemory:
                     logger.info("graph.connected", where=self._where)
         return self._db
 
-    async def _run(self, graph, cypher: str, params: dict, op: str):
+    async def _run(self, graph, cypher: str, params: dict, op: str, read_only: bool = False):
+        """Run one statement. Reads go through GRAPH.RO_QUERY and are retried once on a
+        connection error or timeout (safe: they change nothing). Writes are never retried
+        here: a timed-out CREATE may already have happened."""
         started = time.perf_counter()
-        try:
-            result = await graph.query(cypher, params, timeout=self._query_timeout_ms)
-        except (RedisError, OSError, asyncio.TimeoutError) as e:
-            logger.warning("graph.query_failed", op=op, graph=graph.name, error=type(e).__name__,
-                           detail=str(e)[:200])
-            raise GraphMemoryError(f"graph {op} failed: {type(e).__name__}") from e
+        attempts = 2 if read_only else 1
+        for attempt in range(1, attempts + 1):
+            try:
+                run = graph.ro_query if read_only else graph.query
+                result = await run(cypher, params, timeout=self._query_timeout_ms)
+                break
+            except (RedisError, OSError, asyncio.TimeoutError) as e:
+                logger.warning("graph.query_failed", op=op, graph=graph.name, error=type(e).__name__,
+                               attempt=attempt, detail=str(e)[:200])
+                if attempt == attempts or isinstance(e, ResponseError):  # a query error won't fix itself
+                    raise GraphMemoryError(f"graph {op} failed: {type(e).__name__}") from e
         logger.debug("graph.query", op=op, graph=graph.name, ms=round((time.perf_counter() - started) * 1000, 1))
         return result
 
@@ -420,7 +431,7 @@ class FalkorGraphMemory:
     async def _sync_inferred_role(self, graph, user_id: int, party: PartySnapshot) -> None:
         # what the trader said beats what the ledger suggests: once a customer role has
         # been stated (or closed by a statement), the ledger no longer infers one
-        stated = await self._run(graph, STATED_CUSTOMER_ROLES, {"key": party.key}, "stated_roles")
+        stated = await self._run(graph, STATED_CUSTOMER_ROLES, {"key": party.key}, "stated_roles", read_only=True)
         if stated.result_set and stated.result_set[0][0] > 0:
             return
         if party.customer_since:
@@ -453,8 +464,8 @@ class FalkorGraphMemory:
 
     async def known_names(self, user_id: int) -> list[KnownName]:
         graph = await self._graph(user_id)
-        parties = await self._run(graph, PARTY_NAMES, {}, "party_names")
-        aliases = await self._run(graph, ALIAS_NAMES, {}, "alias_names")
+        parties = await self._run(graph, PARTY_NAMES, {}, "party_names", read_only=True)
+        aliases = await self._run(graph, ALIAS_NAMES, {}, "alias_names", read_only=True)
         return ([KnownName(key=k, party_key=k, party_name=n, is_alias=False) for k, n in parties.result_set]
                 + [KnownName(key=a, party_key=k, party_name=n, is_alias=True) for a, k, n in aliases.result_set])
 
@@ -462,7 +473,7 @@ class FalkorGraphMemory:
         if not party_keys:
             return []
         graph = await self._graph(user_id)
-        result = await self._run(graph, RECALL, {"keys": list(party_keys)}, "recall")
+        result = await self._run(graph, RECALL, {"keys": list(party_keys)}, "recall", read_only=True)
         memories = []
         role_names = {"CUSTOMER_OF": "customer", "SUPPLIER_OF": "supplier"}
         for key, name, roles, aliases, debts, promises, facts in result.result_set:
@@ -482,7 +493,7 @@ class FalkorGraphMemory:
 
     async def current_fact(self, user_id: int, party_key: str, kind: str) -> dict | None:
         graph = await self._graph(user_id)
-        result = await self._run(graph, CURRENT_FACT, {"key": party_key, "kind": kind}, "current_fact")
+        result = await self._run(graph, CURRENT_FACT, {"key": party_key, "kind": kind}, "current_fact", read_only=True)
         if not result.result_set:
             return None
         summary, said, data, confidence, until, since = result.result_set[0]
@@ -491,12 +502,12 @@ class FalkorGraphMemory:
 
     async def debt_party(self, user_id: int, pg_id: int) -> tuple[str, str] | None:
         graph = await self._graph(user_id)
-        result = await self._run(graph, DEBT_PARTY, {"pg_id": int(pg_id)}, "debt_party")
+        result = await self._run(graph, DEBT_PARTY, {"pg_id": int(pg_id)}, "debt_party", read_only=True)
         return tuple(result.result_set[0]) if result.result_set else None
 
     async def open_promises(self, user_id: int, pg_id: int) -> list[tuple[str, str]]:
         graph = await self._graph(user_id)
-        result = await self._run(graph, OPEN_PROMISES, {"pg_id": int(pg_id)}, "open_promises")
+        result = await self._run(graph, OPEN_PROMISES, {"pg_id": int(pg_id)}, "open_promises", read_only=True)
         return [tuple(row) for row in result.result_set]
 
     # ── writing memory ──────────────────────────────────────────────────────
@@ -533,7 +544,7 @@ class FalkorGraphMemory:
 
     async def overdue_promises(self, user_id: int, today: date) -> list[OverduePromise]:
         graph = await self._graph(user_id)
-        result = await self._run(graph, OVERDUE_PROMISES, {"today": _iso(today)}, "overdue_promises")
+        result = await self._run(graph, OVERDUE_PROMISES, {"today": _iso(today)}, "overdue_promises", read_only=True)
         return [OverduePromise(promise_id=i, pg_id=pg, due=due, debt_open=bool(is_open), settled_on=settled)
                 for i, pg, due, is_open, settled in result.result_set]
 
@@ -547,11 +558,11 @@ class FalkorGraphMemory:
     async def explain(self, user_id: int, party_key: str) -> Explanation:
         graph = await self._graph(user_id)
         p = {"key": party_key}
-        promises = await self._run(graph, EXPLAIN_PROMISES, p, "explain_promises")
-        facts = await self._run(graph, EXPLAIN_FACTS, p, "explain_facts")
-        aliases = await self._run(graph, EXPLAIN_ALIASES, p, "explain_aliases")
-        roles = await self._run(graph, EXPLAIN_ROLES, p, "explain_roles")
-        reminders = await self._run(graph, EXPLAIN_REMINDERS, p, "explain_reminders")
+        promises = await self._run(graph, EXPLAIN_PROMISES, p, "explain_promises", read_only=True)
+        facts = await self._run(graph, EXPLAIN_FACTS, p, "explain_facts", read_only=True)
+        aliases = await self._run(graph, EXPLAIN_ALIASES, p, "explain_aliases", read_only=True)
+        roles = await self._run(graph, EXPLAIN_ROLES, p, "explain_roles", read_only=True)
+        reminders = await self._run(graph, EXPLAIN_REMINDERS, p, "explain_reminders", read_only=True)
         role_names = {"CUSTOMER_OF": "customer", "SUPPLIER_OF": "supplier"}
         return Explanation(
             party_key=party_key,
@@ -593,7 +604,7 @@ class FalkorGraphMemory:
         params = {"key": party_key, "user_id": int(user_id), **self._source(source)}
         await self._run(graph, DELETE_INFERRED_ROLE[role], {"key": party_key}, "delete_inferred_role")
         if active:
-            current = await self._run(graph, COUNT_CURRENT_STATED_ROLE[role], {"key": party_key}, "stated_role")
+            current = await self._run(graph, COUNT_CURRENT_STATED_ROLE[role], {"key": party_key}, "stated_role", read_only=True)
             if not (current.result_set and current.result_set[0][0]):
                 await self._run(graph, CREATE_STATED_ROLE[role], {**params, "valid_to": None}, "open_stated_role")
             return

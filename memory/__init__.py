@@ -5,7 +5,7 @@
                         on Windows that tries IPv6 first and Docker only listens on IPv4
     FALKORDB_PORT       default 6379
     FALKORDB_PASSWORD   optional
-    FALKORDB_TIMEOUT_SECONDS  default 2
+    FALKORDB_TIMEOUT_SECONDS  default 5
 
 Layout (ports and adapters):
     ports.py    GraphMemory, the interface the app depends on
@@ -43,7 +43,7 @@ def build_graph_memory() -> GraphMemory:
     from memory.falkor import FalkorGraphMemory  # only import the driver when it's used
     host = os.getenv("FALKORDB_HOST", "127.0.0.1")
     port = int(os.getenv("FALKORDB_PORT", "6379"))
-    timeout = float(os.getenv("FALKORDB_TIMEOUT_SECONDS", "2"))
+    timeout = float(os.getenv("FALKORDB_TIMEOUT_SECONDS", "5"))
     logger.info("graph_memory.falkordb", host=host, port=port)
     return FalkorGraphMemory(host=host, port=port, password=os.getenv("FALKORDB_PASSWORD"),
                              timeout_seconds=timeout)

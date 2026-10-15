@@ -447,6 +447,7 @@ fact traceable to the message it came from.
 | 1 (Oct 15) | FalkorDB in compose; the GraphMemory port and FalkorDB adapter; ledger → graph sync; `rebuild_graph` |
 | 2 (Oct 15) | Three agents (Recorder, Collector, Alert matcher) on a LangGraph StateGraph with plain-code routing; recall (memory in every prompt); the Memory curator; promises, aliases, usual orders, do-not-remind, stated roles; two code-enforced guards found in live runs |
 | 3 (Oct 15) | Collector: overdue promises settled (broken/kept), "who to chase" ranked by code with reasons, do-not-remind enforced in the reminder tool, sent reminders in the graph with BECAUSE links; Alert matcher learns and uses bank names; the "why?" tool. Graphiti stretch goal not taken: the time went into live-run fixes |
+| 4 (Oct 15) | Demo: `seed_demo` (the 30-day scenario through the real code, two accounts), `demo_check` (side by side); README for the submission; hardening from the rehearsal (turn timeout, model-slip retry, graph keepalive and read retries) |
 
 ### 9.1 Architecture
 
@@ -741,6 +742,33 @@ the curator sometimes replied `[]` instead of `{"ops": []}`, which Groq's JSON c
 rejects. The prompt now spells out the shape, and that specific rejection is treated as no
 memories, not an error.
 
+**D35. The demo is seeded through the real code, with a scripted model.** `seed_demo`
+replays the scenario's 30 days through the ledger, the sync, the curator and the
+Collector's sweeps, on the scenario's own dates. Where the curator would ask the model, it
+is handed the scenario's expected operations, and still validates and writes them itself.
+Free, repeatable, and the graph it builds is the one the product would build.
+*Trade-off:* the seeding doesn't test the model's judgement; the live runs (§9.9) and
+`demo_check` do.
+
+**D36. Day 1 vs day 30 is the same ledger.** The day-1 account gets identical entries but
+no curator, notes or sweeps: its graph holds only what the ledger implies. Any difference
+in the replies is what graph memory adds.
+
+**D37. A ceiling on every agent run** (`LLM_TURN_TIMEOUT`, default 90 s). In the rehearsal
+an agent run took an hour (most likely the machine sleeping, but a stalled provider would
+look the same) and held the trader's per-user lock throughout. Past the ceiling, the
+trader is told to try again.
+
+**D38. A malformed tool call is retried once, and isn't an outage.** `gpt-oss` sometimes
+writes tool-call JSON Groq can't parse (`tool_use_failed`). One retry; a second failure
+asks the trader to rephrase. Neither counts towards the circuit breaker, which is for
+provider outages: in the rehearsal, these slips had tripped it.
+
+**D39. Graph connections: keepalive, health checks, read retries.** After a long idle
+spell, pooled connections had been dropped silently and every read timed out. Now: TCP
+keepalive, a health check on connections idle 30 s, a 5 s timeout, and read-only queries
+through `GRAPH.RO_QUERY`, retried once. Writes are still never retried by the driver (D10).
+
 ### 9.5 Error handling
 
 | Where | Fails how | What happens |
@@ -768,6 +796,9 @@ memories, not an error.
 | `memory/explain.explain` | Graph unavailable / unknown person | `explain.failed` → "can't reach my memory"; unknown → "nothing remembered about X" |
 | `Curator._apply_notes` | Note names a party the graph doesn't have | `curator.note_unknown_party`, skipped |
 | `scripts/collector_sweep.py` | One trader fails | Logged, reported, exit 1; others continue. Safe to re-run |
+| `FalkorGraphMemory._run` (reads) | Connection error / timeout | One immediate retry (`graph.query_failed attempt=1`), then `GraphMemoryError` |
+| `tools/router.handle_message` | Malformed tool call (`tool_use_failed`) | `router.model_slip_retry`, one retry; again → `router.model_slip_again`, "say it another way" |
+| `tools/router.handle_message` | Agent run longer than `LLM_TURN_TIMEOUT` | `router.turn_timeout`; "busy, try again"; counts towards the breaker |
 
 ### 9.6 Log events
 
@@ -795,6 +826,8 @@ Structured JSON via structlog (`utils.logger`).
 | `collector.swept` | info | Promises settled by a sweep (broken / kept counts) |
 | `collector.ranked` | info | A ranking: debtors, listed, skipped, whether memory was used, ms |
 | `explain.done` | info | A "why?" answer: promises, facts, aliases, quotes found |
+| `router.model_slip_retry` / `router.model_slip_again` | warning / error | Malformed tool call retried / failed twice |
+| `router.turn_timeout` | warning | An agent run hit the ceiling |
 
 ### 9.7 The Cypher the product runs
 
@@ -829,7 +862,9 @@ All in `memory/falkor.py`:
   http://localhost:3000 (connect to host `localhost`, port `6379`). Each trader's graph is
   `trader_<user_id>`.
 - Settings: `GRAPH_MEMORY` (`falkordb` / `off`), `FALKORDB_HOST`, `FALKORDB_PORT`,
-  `FALKORDB_PASSWORD`, `FALKORDB_TIMEOUT_SECONDS`, `FALKORDB_BROWSER`, `CURATOR_MODEL`.
+  `FALKORDB_PASSWORD`, `FALKORDB_TIMEOUT_SECONDS` (default 5), `FALKORDB_BROWSER`,
+  `CURATOR_MODEL`, `LLM_TURN_TIMEOUT` (default 90).
+- Demo: `uv run python -m scripts.seed_demo [--reset]`, then `uv run python -m scripts.demo_check`.
 - After an outage, or to backfill existing traders:
   `uv run python -m scripts.rebuild_graph --all` (or `--user 12`).
 - Health: `GET /health` → `{"status": "ok", "graph": "ok"}`.
@@ -856,6 +891,10 @@ ledger, repeatedly, fixing what broke:
 | Day 3 | "Who I suppose chase?" → Emeka first ("promised by Sep 24", "broken 3 of 4"), Mama Chidi next, Pastor John skipped with the trader's words; "why Emeka first?" answered from the graph; "remind Pastor John" stopped by code | (worked as designed) |
 | Day 3 | Groq's free tier: 200,000 tokens/day for `gpt-oss-120b`, used up by the day's live runs | Later checks on `gpt-oss-20b`; see limitations |
 | Day 3 | `gpt-oss-20b` answered `[]` for "nothing to remember", rejected by Groq | D34 |
+| Day 4 seed | The seeded day-30 graph matched the scenario exactly (Emeka broken/broken/kept/broken; Mama Chidi's three aliases and bank name; Bola's inferred usual order; Musa a supplier; Toyin broken at 67%; Chidi separate); day-1's ranking had Pastor John in it and no promise history | (worked as designed) |
+| Day 4 rehearsal | An agent run took an hour, then every graph read timed out on dropped connections | D37, D39 |
+| Day 4 rehearsal | `gpt-oss-20b` wrote unparseable tool calls, and those tripped the circuit breaker | D38 |
+| Day 4 rehearsal | With recall down, "Chidi's mum" was filed as a new person (the name check needs recall) | D39 makes recall far less likely to fail; the gap is listed under limitations |
 
 The final run: every claimed recording reached the ledger; "Chidi's mum" was asked about,
 learned as Mama Chidi's alias, then recognised without asking; Chidi stayed a separate
@@ -873,6 +912,8 @@ drafting.
   ledger structure comes back with a rebuild, learned memory from that turn doesn't.
 - Recall's name matching is word-based: "Mama Nkechi" and "Nkechi's mum" are not linked
   unless the trader links them.
+- The name check (D24) relies on recall. If the graph is unreachable for a message, a
+  nickname can be recorded as a new person; `correct_transaction` plus an alias fixes it.
 - Token budget: each message costs one agent run (often 2–3 model calls) plus, when worth
   it, one curator call. Groq's free tier allows 200,000 tokens a day per model, roughly
   100–150 messages. `CURATOR_MODEL=groq:openai/gpt-oss-20b` moves the curator onto a

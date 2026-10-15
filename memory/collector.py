@@ -177,17 +177,18 @@ class Collector:
             chase.append(d)
 
         chase.sort(key=lambda d: d.sort_key(today))
+        learned = any(m.promises or m.facts for m in memories.values())
         result = {
             "chase": [{"name": d.name, "owes": format_naira(d.owed), "reasons": d.reasons}
                       for d in chase[:MAX_LISTED]],
             "skipped": [{"name": s.name, "owes": format_naira(s.owed), "reason": s.reason} for s in skipped],
             "ranked_by": "broken promises, then days overdue, then amount owed"
-                         if memories else "days overdue, then amount owed (nothing remembered yet)",
+                         if learned else "days overdue, then amount owed (nothing remembered yet)",
         }
         if len(chase) > MAX_LISTED:
             result["more"] = len(chase) - MAX_LISTED
         logger.info("collector.ranked", user_id=user_id, debtors=len(debtors), listed=len(result["chase"]),
-                    skipped=len(skipped), with_memory=bool(memories), swept=swept,
+                    skipped=len(skipped), with_memory=learned, swept=swept,
                     ms=round((time.perf_counter() - started) * 1000, 1))
         return result
 
