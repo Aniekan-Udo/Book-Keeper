@@ -12,10 +12,12 @@ Layout (ports and adapters):
     falkor.py   the FalkorDB adapter; every Cypher statement lives here
     null.py     the switched-off adapter
     sync.py     keeps the graph in step with the Postgres ledger
+    recall.py   finds the people a message mentions and what's remembered about them
+    curator.py  after each reply, decides what to remember
     models.py   plain data passed through the port
 
-`get_graph_memory()` returns the store chosen at startup (main.py lifespan); until then,
-and in tests, it's the null adapter.
+`get_graph_memory()` / `get_curator()` return what was set up at startup (main.py
+lifespan); until then, and in tests, the null adapter and a curator that does nothing.
 """
 import os
 
@@ -25,6 +27,7 @@ from memory.ports import GraphMemory
 from utils import logger
 
 _current: GraphMemory = NullGraphMemory()
+_curator = None  # memory.curator.Curator, set at startup
 
 
 def build_graph_memory() -> GraphMemory:
@@ -55,4 +58,20 @@ def set_graph_memory(memory: GraphMemory) -> None:
     _current = memory
 
 
-__all__ = ["GraphMemory", "GraphMemoryError", "build_graph_memory", "get_graph_memory", "set_graph_memory"]
+def get_curator():
+    """The curator set at startup, or one that does nothing (graph memory off)."""
+    global _curator
+    if _curator is None:
+        from memory.curator import Curator
+        from db import get_db
+        _curator = Curator(NullGraphMemory(), get_db)
+    return _curator
+
+
+def set_curator(curator) -> None:
+    global _curator
+    _curator = curator
+
+
+__all__ = ["GraphMemory", "GraphMemoryError", "build_graph_memory", "get_curator", "get_graph_memory",
+           "set_curator", "set_graph_memory"]

@@ -26,7 +26,7 @@ def fake_llm(monkeypatch):
         extract = next(t for t in tools if t.name == "extract_transactions_tool")
         if queued:
             await extract.ainvoke({"transactions": queued})
-        return {"messages": [AIMessage(content="Recorded.")]}
+        return {"messages": [AIMessage(content="OK.")]}
 
     monkeypatch.setattr(router, "handle_message", handle_message)
     return queued

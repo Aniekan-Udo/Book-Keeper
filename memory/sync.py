@@ -10,8 +10,10 @@ It runs in two ways:
 - `rebuild`: everything for one trader, from scripts/rebuild_graph.py, to recover after
   the graph was down or wiped. Learned memory (aliases, facts) is never touched.
 """
+import asyncio
 import time
 from contextlib import AbstractAsyncContextManager
+from datetime import date
 from typing import Callable, Iterable
 
 from sqlalchemy import func, select
@@ -60,9 +62,14 @@ async def party_snapshots(db: AsyncSession, user_id: int,
     rows = (await db.execute(query)).scalars().all()
 
     ids = [r.id for r in rows]
-    ever_repaid = set((await db.execute(
-        select(RepaymentAllocation.applied_to_id).where(RepaymentAllocation.applied_to_id.in_(ids))
-    )).scalars().all()) if ids else set()
+    # debt id → date of the latest repayment applied to it (when it was cleared)
+    last_repaid: dict[int, date] = dict((await db.execute(
+        select(RepaymentAllocation.applied_to_id, func.max(TransactionORM.date))
+        .join(TransactionORM, TransactionORM.id == RepaymentAllocation.repayment_id)
+        .where(RepaymentAllocation.applied_to_id.in_(ids), TransactionORM.is_deleted.is_(False))
+        .group_by(RepaymentAllocation.applied_to_id)
+    )).all()) if ids else {}
+    ever_repaid = set(last_repaid)
 
     by_key: dict[str, list[TransactionORM]] = {}
     for row in rows:
@@ -78,7 +85,9 @@ async def party_snapshots(db: AsyncSession, user_id: int,
             name=party_rows[-1].party.strip(),  # rows are oldest first: the latest spelling wins
             debts=tuple(
                 DebtSnapshot(pg_id=r.id, kind="receivable" if r.type in RECEIVABLE_TYPES else "payable",
-                             open=r.outstanding > 0, date=r.date, due=r.due_date)
+                             open=r.outstanding > 0, date=r.date, due=r.due_date,
+                             # paid upfront but given a date anyway: cleared on its own date
+                             settled_on=None if r.outstanding > 0 else last_repaid.get(r.id, r.date))
                 for r in party_rows if _is_debt(r, ever_repaid)
             ),
             customer_since=receivables[0].date if receivables else None,
@@ -89,26 +98,32 @@ async def party_snapshots(db: AsyncSession, user_id: int,
 
 
 class GraphSync:
-    def __init__(self, memory: GraphMemory, session_factory: SessionFactory):
+    def __init__(self, memory: GraphMemory, session_factory: SessionFactory, retry_delay: float = 10.0):
         self._memory = memory
         self._session_factory = session_factory
+        self._retry_delay = retry_delay
 
     async def on_ledger_changed(self, event: LedgerChanged) -> None:
         if not self._memory.enabled:
             return
-        started = time.perf_counter()
-        try:
-            async with self._session_factory() as db:
-                snapshots = await party_snapshots(db, event.user_id, event.party_keys)
-            await self._memory.sync_parties(event.user_id, snapshots)
-        except GraphMemoryError as e:
-            # the ledger is fine; the graph is behind until the next change to these
-            # parties or a rebuild (scripts/rebuild_graph.py)
-            logger.warning("graph_sync.failed", user_id=event.user_id, reason=event.reason,
-                           parties=len(event.party_keys), error=str(e))
+        for attempt in (1, 2):
+            started = time.perf_counter()
+            try:
+                # re-read on each attempt: the retry should mirror the ledger as it is then
+                async with self._session_factory() as db:
+                    snapshots = await party_snapshots(db, event.user_id, event.party_keys)
+                await self._memory.sync_parties(event.user_id, snapshots)
+            except GraphMemoryError as e:
+                # the ledger is fine either way. One retry covers a blip; after that the graph
+                # is behind until the next change to these parties or a rebuild
+                logger.warning("graph_sync.failed", user_id=event.user_id, reason=event.reason, attempt=attempt,
+                               parties=len(event.party_keys), error=str(e))
+                if attempt == 1:
+                    await asyncio.sleep(self._retry_delay)
+                continue
+            logger.info("graph_sync.done", user_id=event.user_id, reason=event.reason, attempt=attempt,
+                        parties=len(snapshots), ms=round((time.perf_counter() - started) * 1000, 1))
             return
-        logger.info("graph_sync.done", user_id=event.user_id, reason=event.reason,
-                    parties=len(snapshots), ms=round((time.perf_counter() - started) * 1000, 1))
 
     async def rebuild(self, user_id: int) -> dict:
         """Resync every party of one trader and drop debts the ledger no longer has.

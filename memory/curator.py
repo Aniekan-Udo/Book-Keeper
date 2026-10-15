@@ -1,0 +1,398 @@
+"""The Memory curator: after each reply, in the background, decide what to remember.
+
+Two kinds of work, deliberately separated:
+
+1. Worked out by code, from the ledger (no model):
+   - promises: an entry this turn got a due date → a Promise; an earlier open promise on
+     the same debt becomes `replaced` (not yet due) or `broken` (already overdue)
+   - inferred usual orders: the same items and quantities three sales in a row
+
+2. Proposed by the model, checked by code, written by fixed Cypher:
+   aliases, stated usual orders, do-not-remind, and roles. The model returns operations
+   (`MemoryOp`), never Cypher. Each one is validated: the person must exist, an alias must
+   have been said, an alias can't swallow a separate person with their own records.
+   Anything that fails is logged and dropped.
+
+The curator never blocks or breaks a reply: it runs after the reply is saved, catches
+everything, and does nothing at all when graph memory is off.
+"""
+import asyncio
+import json
+import time
+from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
+from typing import Callable, Literal
+
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import HumanMessage, SystemMessage
+from pydantic import BaseModel, Field
+from sqlalchemy import func, select
+
+from config import LooseDate, business_today
+from db import TransactionORM
+from memory.models import GraphMemoryError, KnownName, Source
+from memory.ports import GraphMemory
+from memory.recall import Recalled
+from memory.sync import SessionFactory
+from tools.ledger_events import ledger_events
+from utils import logger, provider_problem
+
+AGENT = "curator"
+UNCHANGED = "unchanged"  # _apply's answer when the memory was already there
+INFER_AFTER = 3  # identical sales in a row before a usual order is guessed
+
+
+# ── what the model may propose ───────────────────────────────────────────────
+
+class OrderItem(BaseModel):
+    item: str
+    quantity: float | None = None
+    unit: str | None = None
+
+
+class MemoryOp(BaseModel):
+    op: Literal["add_alias", "set_usual_order", "set_do_not_remind", "lift_do_not_remind", "set_role"]
+    party: str = Field(description="The person, by the name listed under People")
+    alias: str | None = Field(default=None, description="add_alias: the other name, exactly as the trader wrote it")
+    items: list[OrderItem] | None = Field(default=None, description="set_usual_order")
+    payment: Literal["cash", "credit"] | None = Field(default=None, description="set_usual_order, if said")
+    role: Literal["customer", "supplier"] | None = Field(default=None, description="set_role")
+    active: bool | None = Field(default=None, description="set_role: false if the role ended")
+    until: LooseDate = Field(default=None, description="set_do_not_remind: end date, if given")
+    said: str | None = Field(default=None, description="The trader's own words, short")
+
+
+class CuratorOutput(BaseModel):
+    ops: list[MemoryOp] = Field(default_factory=list, description="Empty if there is nothing to remember")
+
+
+INSTRUCTIONS = """You keep long-term memory for a Nigerian trader's bookkeeping assistant. From the trader's latest message (and the conversation just before it), list memory operations. Only what the trader clearly said; never guess. Most messages (sales, questions, reports, greetings) need none: return no ops.
+
+Operations:
+- add_alias: the trader confirmed two names are one person ("Chidi's mum na Mama Chidi", "yes" to "Is X the same as Y?", "Bolu na Bola"). Only the trader's own words count: never from the assistant's question alone, before the trader has answered. party = the known person; alias = the other name as written.
+- set_usual_order: the trader says what someone usually buys ("Bola's usual na 2 bags rice"). Not for a single sale.
+- set_do_not_remind: don't remind or chase someone ("no remind Pastor John"). until = end date if given.
+- lift_do_not_remind: only when the trader clearly says reminding them is now fine ("you fit remind Pastor John now"). Asking for a reminder ("remind Pastor John") is NOT permission: the assistant checks with them first.
+- set_role: a role started or ended. "Musa dey supply my oil now" → supplier, active true. "E no dey buy from me again" → customer, active false.
+Use names exactly as listed under People. said = the trader's own short words."""
+
+
+# ── what one conversation turn hands the curator ────────────────────────────
+
+@dataclass
+class Turn:
+    user_id: int
+    turn_id: int | None           # conversation_turns id of the trader's message
+    message: str
+    reply: str
+    channel: str = "web"
+    history: list[dict] = field(default_factory=list)   # earlier turns, oldest first
+    touched: list[dict] = field(default_factory=list)   # ledger entries written this turn (ledger.describe)
+    recalled: Recalled = field(default_factory=Recalled)
+    today: date = field(default_factory=business_today)
+    at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+@dataclass
+class Outcome:
+    promises: int = 0
+    inferred: int = 0
+    applied: list[str] = field(default_factory=list)
+    rejected: list[tuple[str, str]] = field(default_factory=list)   # (op, reason)
+    unchanged: list[str] = field(default_factory=list)              # proposed, but already known
+    asked_model: bool = False
+    graph_failed: bool = False  # the graph store failed before anything was written
+
+
+def _structured(model: BaseChatModel):
+    """The model constrained to CuratorOutput. JSON-schema mode where the provider has it:
+    with tool calling, gpt-oss on Groq sometimes calls a made-up "commentary" tool, or no
+    tool at all when there's nothing to remember, and the request fails."""
+    try:
+        return model.with_structured_output(CuratorOutput, method="json_schema")
+    except (TypeError, ValueError, NotImplementedError):
+        return model.with_structured_output(CuratorOutput)
+
+
+def name_key(name: str) -> str:
+    """Same normalisation as ledger party keys, with inner spaces collapsed."""
+    return " ".join(name.strip().lower().split())
+
+
+def _summary(items: list[OrderItem]) -> str:
+    def one(i: OrderItem) -> str:
+        qty = f"{i.quantity:g} " if i.quantity is not None else ""
+        unit = f"{i.unit} " if i.unit else ""
+        return f"{qty}{unit}{i.item}".strip()
+    return ", ".join(one(i) for i in items)
+
+
+class Curator:
+    def __init__(self, memory: GraphMemory, session_factory: SessionFactory,
+                 model_factory: Callable[[], BaseChatModel] | None = None,
+                 tracer_factory: Callable[[int, str], object] | None = None,
+                 retry_delay: float = 10.0):
+        self._memory = memory
+        self._retry_delay = retry_delay
+        self._session_factory = session_factory
+        self._model_factory = model_factory
+        self._tracer_factory = tracer_factory
+        self._tasks: set[asyncio.Task] = set()
+
+    @property
+    def enabled(self) -> bool:
+        return self._memory.enabled
+
+    # ── scheduling ──────────────────────────────────────────────────────────
+
+    def schedule(self, turn: Turn) -> None:
+        """Run `curate` in the background. Never raises."""
+        if not self.enabled:
+            return
+        try:
+            task = asyncio.get_running_loop().create_task(self._safe_curate(turn))
+        except RuntimeError:
+            logger.warning("curator.no_loop", user_id=turn.user_id)
+            return
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def drain(self) -> None:
+        while self._tasks:
+            await asyncio.gather(*list(self._tasks), return_exceptions=True)
+
+    async def _safe_curate(self, turn: Turn) -> None:
+        try:
+            outcome = await self.curate(turn)
+            if outcome.graph_failed:
+                # a blip in the graph store: try the turn once more. Safe to repeat: promises
+                # and inferred orders are checked for before they're written
+                await asyncio.sleep(self._retry_delay)
+                logger.info("curator.retrying", user_id=turn.user_id, turn_id=turn.turn_id)
+                await self.curate(turn)
+        except Exception:
+            logger.error("curator.crashed", user_id=turn.user_id, turn_id=turn.turn_id, exc_info=True)
+
+    # ── the work ────────────────────────────────────────────────────────────
+
+    async def curate(self, turn: Turn) -> Outcome:
+        outcome = Outcome()
+        if not self.enabled:
+            return outcome
+        started = time.perf_counter()
+        # this turn's ledger changes must be in the graph before promises can attach to them
+        await ledger_events.drain()
+        source = Source(agent=AGENT, at=turn.at, turn_id=turn.turn_id)
+
+        try:
+            outcome.promises = await self._promises_from_due_dates(turn, source)
+            outcome.inferred = await self._infer_usual_orders(turn)
+        except GraphMemoryError as e:
+            logger.warning("curator.graph_failed", user_id=turn.user_id, step="ledger_derived", error=str(e))
+            outcome.graph_failed = True
+            return outcome
+
+        if self._worth_asking(turn) and self._model_factory is not None:
+            outcome.asked_model = True
+            for op in await self._propose(turn):
+                try:
+                    reason = await self._apply(turn, op, source)
+                except GraphMemoryError as e:
+                    reason = f"graph error: {e}"
+                if reason == UNCHANGED:
+                    outcome.unchanged.append(op.op)
+                elif reason:
+                    outcome.rejected.append((op.op, reason))
+                else:
+                    outcome.applied.append(op.op)
+
+        logger.info("curator.done", user_id=turn.user_id, turn_id=turn.turn_id, promises=outcome.promises,
+                    inferred=outcome.inferred, asked_model=outcome.asked_model, applied=outcome.applied,
+                    unchanged=outcome.unchanged, rejected=outcome.rejected, ms=round((time.perf_counter() - started) * 1000, 1))
+        return outcome
+
+    # 1a. promises, from the ledger
+    async def _promises_from_due_dates(self, turn: Turn, source: Source) -> int:
+        created = 0
+        for entry in turn.touched:
+            due = entry.get("due_date")
+            if entry.get("type") not in ("sale", "loan_given") or not due or not entry.get("outstanding"):
+                continue
+            due = date.fromisoformat(due)
+            pg_id = entry["id"]
+            if await self._memory.debt_party(turn.user_id, pg_id) is None:
+                logger.warning("curator.debt_missing", user_id=turn.user_id, pg_id=pg_id)
+                continue
+            existing = await self._memory.open_promises(turn.user_id, pg_id)
+            if any(d == due.isoformat() for _, d in existing):
+                continue  # the same promise, restated
+            for promise_id, old_due in existing:
+                if date.fromisoformat(old_due) < turn.today:
+                    fraction = await self._paid_fraction(pg_id)
+                    await self._memory.set_promise_status(turn.user_id, promise_id, "broken", fraction, turn.today)
+                else:
+                    await self._memory.set_promise_status(turn.user_id, promise_id, "replaced", None, turn.today)
+            await self._memory.add_promise(turn.user_id, pg_id, due, source)
+            created += 1
+        return created
+
+    async def _ledger_entries(self, user_id: int, key: str) -> int:
+        async with self._session_factory() as db:
+            return (await db.execute(
+                select(func.count()).select_from(TransactionORM)
+                .where(TransactionORM.user_id == user_id, TransactionORM.is_deleted.is_(False),
+                       func.lower(func.trim(TransactionORM.party)) == key)
+            )).scalar_one()
+
+    async def _paid_fraction(self, pg_id: int) -> float | None:
+        async with self._session_factory() as db:
+            row = await db.get(TransactionORM, pg_id)
+            if row is None or not row.amount:
+                return None
+            return round(float((row.amount_paid or 0) / row.amount), 2)
+
+    # 1b. usual orders, from the ledger
+    async def _infer_usual_orders(self, turn: Turn) -> int:
+        parties = {name_key(e["party"]) for e in turn.touched if e.get("type") == "sale" and e.get("party")}
+        inferred = 0
+        for key in parties:
+            async with self._session_factory() as db:
+                sales = (await db.execute(
+                    select(TransactionORM)
+                    .where(TransactionORM.user_id == turn.user_id, TransactionORM.type == "sale",
+                           TransactionORM.is_deleted.is_(False), TransactionORM.status == "complete",
+                           func.lower(func.trim(TransactionORM.party)) == key)
+                    .order_by(TransactionORM.date.desc(), TransactionORM.id.desc())
+                    .limit(INFER_AFTER)
+                )).scalars().all()
+            if len(sales) < INFER_AFTER:
+                continue
+            shapes = {((s.item or "").strip().lower(), s.quantity, (s.unit or "").strip().lower()) for s in sales}
+            if len(shapes) != 1 or not sales[0].item:
+                continue
+            current = await self._memory.current_fact(turn.user_id, key, "usual_order")
+            item = OrderItem(item=sales[0].item.strip().lower(), quantity=sales[0].quantity,
+                             unit=(sales[0].unit or "").strip().lower() or None)
+            summary = _summary([item])
+            if current and (current["confidence"] == "stated" or current["summary"] == summary):
+                continue  # what the trader said wins; and nothing new to learn
+            payment = "cash" if all(s.amount_paid == s.amount for s in sales) else "credit"
+            data = json.dumps({"items": [item.model_dump()], "payment": payment,
+                               "last_amount": float(sales[0].amount), "source_entries": [s.id for s in sales]})
+            await self._memory.set_fact(turn.user_id, key, "usual_order", summary,
+                                        Source(agent=AGENT, at=turn.at, turn_id=None), "inferred", data=data)
+            inferred += 1
+        return inferred
+
+    # 2. the model's proposals
+    @staticmethod
+    def _worth_asking(turn: Turn) -> bool:
+        """Skip the model call when nothing in the turn could hold a memory: no known or
+        possible person mentioned, no named entry recorded, no question just answered."""
+        if not turn.message.strip():
+            return False
+        if not turn.recalled.is_empty() or any(e.get("party") for e in turn.touched):
+            return True
+        last_reply = next((h["content"] for h in reversed(turn.history) if h["role"] == "assistant"), "")
+        return last_reply.rstrip().endswith("?")
+
+    async def _propose(self, turn: Turn) -> list[MemoryOp]:
+        people = sorted({p.name for p in turn.recalled.people}
+                        | {n for names in turn.recalled.possible.values() for n in names}
+                        | {e["party"] for e in turn.touched if e.get("party")})
+        alias_lines = [f"{p.name} (also {', '.join(p.aliases)})" for p in turn.recalled.people if p.aliases]
+        entries = [f"#{e['id']} {e['type']} {e.get('item') or ''} party={e.get('party')} due={e.get('due_date')}"
+                   for e in turn.touched]
+        convo = "\n".join(f"{h['role']}: {h['content']}" for h in turn.history[-4:])
+        context = (f"Today: {turn.today.isoformat()}\n"
+                   f"People: {', '.join(people) or 'none yet'}\n"
+                   + (f"Known other names: {'; '.join(alias_lines)}\n" if alias_lines else "")
+                   + (f"Entries recorded this turn: {'; '.join(entries)}\n" if entries else "")
+                   + (f"Conversation before:\n{convo}\n" if convo else "")
+                   + f"Trader's latest message: {turn.message}\nAssistant's reply: {turn.reply}")
+        tracer = self._tracer_factory(turn.user_id, turn.channel) if self._tracer_factory else None
+        config = {"run_name": "memory curator", **({"callbacks": [tracer]} if tracer else {})}
+        try:
+            model = _structured(self._model_factory())
+            result = await model.ainvoke([SystemMessage(INSTRUCTIONS), HumanMessage(context)], config=config)
+        except Exception as e:
+            logger.warning("curator.model_failed", user_id=turn.user_id, error=type(e).__name__,
+                           problem=provider_problem(e), detail=str(e)[:300])
+            return []
+        if not isinstance(result, CuratorOutput):
+            logger.warning("curator.model_bad_output", user_id=turn.user_id, got=type(result).__name__)
+            return []
+        return result.ops
+
+    async def _resolve(self, user_id: int, name: str) -> KnownName | None:
+        key = name_key(name)
+        for known in await self._memory.known_names(user_id):
+            if known.key == key:
+                return known
+        return None
+
+    async def _apply(self, turn: Turn, op: MemoryOp, source: Source) -> str | None:
+        """Validate and write one operation. Returns why it was rejected, or None."""
+        target = await self._resolve(turn.user_id, op.party)
+        if target is None:
+            return "unknown person"
+        party = target.party_key
+        uid = turn.user_id
+
+        if op.op == "add_alias":
+            if not op.alias or not op.alias.strip():
+                return "no alias given"
+            alias_key = name_key(op.alias)
+            if alias_key == party:
+                return "alias is the same name"
+            said_text = " ".join([turn.message] + [h["content"] for h in turn.history[-4:]]).lower()
+            if alias_key not in " ".join(said_text.split()):
+                return "alias not in the conversation"
+            existing = await self._resolve(uid, op.alias)
+            if existing is not None and existing.is_alias:
+                return UNCHANGED if existing.party_key == party else "already another person's alias"
+            if existing is not None:
+                # the alias is itself a party (e.g. a misheard "Bolu"): only absorb it if it
+                # has nothing of its own, in the ledger (a cash expense isn't a graph debt)
+                # or the graph; otherwise they're two people
+                if await self._ledger_entries(uid, alias_key) or \
+                        not await self._memory.remove_empty_party(uid, alias_key):
+                    return "a separate person with their own records"
+            kind = "transcription" if "voice" in turn.message.lower() or turn.message.startswith("(voice note)") \
+                else "nickname"
+            await self._memory.add_alias(uid, alias_key, op.alias.strip(), party, kind, source)
+            return None
+
+        if op.op == "set_usual_order":
+            items = [i for i in (op.items or []) if i.item and i.item.strip()]
+            if not items:
+                return "no items"
+            current = await self._memory.current_fact(uid, party, "usual_order")
+            if current and current["confidence"] == "stated" and current["summary"] == _summary(items):
+                return UNCHANGED
+            data = json.dumps({"items": [i.model_dump() for i in items], "payment": op.payment})
+            await self._memory.set_fact(uid, party, "usual_order", _summary(items), source, "stated",
+                                        said=op.said, data=data)
+            return None
+
+        if op.op == "set_do_not_remind":
+            if op.until and op.until < turn.today:
+                return "end date already passed"
+            current = await self._memory.current_fact(uid, party, "do_not_remind")
+            if current and current["until"] == (op.until.isoformat() if op.until else None):
+                return UNCHANGED  # the model often restates it from the history
+            await self._memory.set_fact(uid, party, "do_not_remind", "do not remind", source, "stated",
+                                        said=op.said, until=op.until)
+            return None
+
+        if op.op == "lift_do_not_remind":
+            closed = await self._memory.close_fact(uid, party, "do_not_remind", source)
+            return None if closed else UNCHANGED
+
+        if op.op == "set_role":
+            if op.role is None:
+                return "no role given"
+            await self._memory.set_stated_role(uid, party, op.role, op.active is not False, source)
+            return None
+
+        return f"unknown op {op.op}"

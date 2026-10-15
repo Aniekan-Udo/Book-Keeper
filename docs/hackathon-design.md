@@ -220,6 +220,10 @@ Considered and not used as the core:
 | LLM-writes-Cypher (the pattern in FalkorDB's LangGraph docs) | Unpredictable queries; their examples build Cypher from strings; Rule 12 needs explainable queries |
 | Graphiti (`graphiti-core[falkordb]`) | Works with Groq and local embeddings (tested in a side project), but it's built for recall, not computed state: promise kept/broken, ranking and `paid_fraction` must be exact. Several model calls per message; queries live inside the library (Rule 12); weakens the "new FalkorDB work" case. **Stretch goal only**, see below |
 
+**Change during the build (Day 2):** promises are not extracted by the model. A due date on
+a ledger entry is the promise, and clearing the debt by the due date is keeping it, so code
+does both (`Documentation.MD` §9, D19). The model only handles what needs judgement.
+
 **Decision: custom design for the core.** If Day 3 finishes early, Graphiti may be added as
 a separate "tell me about…" recall layer in its own graph per trader (`recall_<user_id>`),
 never mixed with the core schema, and nothing in the core depends on it.

@@ -17,7 +17,8 @@ browser (frontend/index.html)
 FastAPI (main.py)
    ├── endpoints/        register, login, logout, WhatsApp login/connect
    ├── /api/v1/message   ┐
-   ├── /webhooks/whatsapp┴→ tools/assistant.py (memory) → tools/router.py: LLM agent (llm.py)
+   ├── /webhooks/whatsapp┴→ tools/assistant.py: recall → agents/ (Recorder | Collector |
+   │                        Alert matcher, LLM via tools/router.py) → memory curator (§9)
    └── /api/v1/clarify   → fill in a missing amount directly, no LLM
                                    │
 tools/clean_version.py  agent tools: extract, report, query, undo, correct
@@ -30,7 +31,8 @@ Postgres (db.py models, migrations/ via Alembic)        ← source of truth for 
 FalkorDB (memory/)  one graph per trader: parties, debts, roles; learned memory (§9)
 ```
 
-The LLM only decides *which* tool to call and with what arguments. Every rule about
+The LLM only decides *which* tool to call and with what arguments (and, in the curator,
+proposes memories that code checks). Every rule about
 money lives in `tools/ledger.py`, is deterministic, and is covered by
 `tools/test/test_ledger.py`. Keep it that way: never let the model compute balances.
 
@@ -443,6 +445,7 @@ fact traceable to the message it came from.
 | Day | Built |
 |---|---|
 | 1 (Oct 15) | FalkorDB in compose; the GraphMemory port and FalkorDB adapter; ledger → graph sync; `rebuild_graph` |
+| 2 (Oct 15) | Three agents (Recorder, Collector, Alert matcher) on a LangGraph StateGraph with plain-code routing; recall (memory in every prompt); the Memory curator; promises, aliases, usual orders, do-not-remind, stated roles; two code-enforced guards found in live runs |
 
 ### 9.1 Architecture
 
@@ -464,6 +467,29 @@ scripts/rebuild_graph.py: GraphSync.rebuild() for one or all traders
 The ledger doesn't import anything from `memory/`. It only publishes events. The
 dependency points one way: `memory → tools.ledger_events`.
 
+**One trader message** (`tools/assistant.respond`):
+
+```
+message
+  │
+  ├─ recall (memory/recall.py)        code only: find known/possible people in the message,
+  │                                   fetch what the graph remembers → prompt section
+  ├─ route (agents/routing.py)        code only: alert text → Alert matcher; "remind"/"chase"
+  │                                   → Collector; answer to a pending item → its agent; else Recorder
+  ├─ agent team (agents/team.py)      LangGraph StateGraph: the chosen agent runs with its own
+  │     recorder | collector |        prompt and tools; it may hand off once (transfer_to_agent)
+  │     alert_matcher                 ledger tools → Postgres → LedgerChanged → GraphSync
+  ├─ reply saved (conversation_turns)
+  └─ curator (memory/curator.py)      background: promises from due dates, inferred usual
+                                      orders (code); aliases, usual orders, do-not-remind,
+                                      roles (model proposes, code checks, Cypher writes)
+```
+
+The agents never message each other. What one learns reaches the others through the
+graph: the curator writes "don't remind Pastor John" after a Recorder or Collector turn,
+and the Collector reads it on the next one. Every memory carries `WRITTEN_BY` (which agent)
+and `LEARNED_FROM` (which message).
+
 ### 9.2 Design patterns, and why each one is there
 
 | Pattern | Where | Why |
@@ -474,6 +500,11 @@ dependency points one way: `memory → tools.ledger_events`.
 | **Factory** | `memory.build_graph_memory()` | One place reads the environment and picks the adapter; the FalkorDB driver is only imported when used |
 | **Dependency injection** | `GraphSync(memory, session_factory)` | Production passes `db.get_db`; tests pass their rolled-back session and a fake store |
 | **Snapshot reconciliation** | `party_snapshots()` → `sync_parties()` | The graph is made to *match* the ledger for a party rather than replaying diffs. Idempotent, so live sync and full rebuild are the same code path, and a missed event is fixed by the next one |
+| **State machine** | `agents/team.py` (LangGraph `StateGraph`) | The turn's control flow is explicit: route → agent → (handoff → agent) → end, with a hard limit of one handoff, so agents can't bounce a message back and forth |
+| **Specification (table-driven agents)** | `AGENT_TOOLS`, `PROMPTS` in `agents/team.py` | An agent is data: a tool list and a prompt builder. Adding one is a table entry, and a test checks each agent sees only its own tools |
+| **Command objects + validator** | `MemoryOp` → `Curator._apply` | The model proposes typed commands; code validates each one (does the person exist? was the alias said?) and runs fixed Cypher. The model never writes to the graph |
+| **Guard in code, not in the prompt** | `could_be` in the record tool; `claims_unbacked_recording` in the team | Two failure modes seen in live runs are refused or retried by code: splitting a customer across two names, and claiming a recording that never happened |
+| **Background worker with one retry** | `Curator.schedule`, `GraphSync.on_ledger_changed` | Off the reply path; a blip in the graph store gets one delayed retry, which is safe because both are idempotent |
 
 Deliberately **not** used:
 - **A message queue** (Redis streams, Celery). The events are in-process tasks. A queue would
@@ -489,17 +520,34 @@ One graph per trader, named `trader_<user_id>`.
 ```
 (:Trader {id})
 (:Party {key, name, created_at})
-(:Debt {pg_id, kind, open, date, due}) -[:WITH]-> (:Party)
-(:Party) -[:CUSTOMER_OF {confidence, valid_from, valid_to}]-> (:Trader)
+(:Debt {pg_id, kind, open, date, due, settled_on}) -[:WITH]-> (:Party)
+(:Party) -[:CUSTOMER_OF|SUPPLIER_OF {confidence, valid_from, valid_to, turn_id, written_by}]-> (:Trader)
+
+(:Alias {key, text, kind}) -[:REFERS_TO {valid_from, valid_to}]-> (:Party)
+(:Promise {id, due, status, paid_fraction, made_on, closed_on}) -[:FOR]-> (:Debt)
+                                                                -[:MADE_BY]-> (:Party)
+(:Fact {id, kind, summary, said, data, until, confidence, valid_from, valid_to}) -[:ABOUT]-> (:Party)
+
+(:Alias|:Promise|:Fact) -[:LEARNED_FROM]-> (:Message {turn_id, at})   // the trader's message
+(:Alias|:Promise|:Fact) -[:WRITTEN_BY]->   (:Agent {name})            // e.g. "curator"
 ```
 
 - `Party.key`: the normalised name, the same grouping the ledger uses for debts
   (`lower(trim(party))`).
 - `Debt.kind`: `receivable` (they owe the trader) or `payable` (the trader owes them).
-- Unique constraints: `Party.key`, `Debt.pg_id`. Range index: `Alias.key`, ready for Day 2.
+  `settled_on`: the date of the repayment that cleared it.
+- `Alias.kind`: `nickname`, `transcription` (a misheard voice note), later `bank_name`.
+- `Promise.status`: `open`, `kept`, `broken`, `replaced` (more time asked *before* the due
+  date; not held against them).
+- `Fact.kind`: `usual_order` (`data` holds the items as JSON) or `do_not_remind` (`until`
+  optional). `confidence`: `stated` (the trader said it) or `inferred` (code worked it out).
+- `Message.turn_id` is a `conversation_turns` id: the message text stays in Postgres; the
+  graph only points at it.
+- Unique constraints: `Party.key`, `Debt.pg_id`, `Promise.id`, `Message.turn_id`,
+  `Agent.name`. Range index: `Alias.key`.
 
-Still to come (Days 2–3): `Alias`, `Promise`, `Fact`, `Message`, `Agent`, `Reminder`, and
-supplier roles. See the five memory types in `docs/hackathon-design.md`.
+Still to come (Day 3): `Reminder`, bank-name aliases from the Alert matcher, and the
+Collector marking overdue promises broken. See `docs/hackathon-design.md`.
 
 ### 9.4 Decisions and trade-offs
 
@@ -516,7 +564,8 @@ does span traders, stays in Postgres.
 **D3. Sync runs after the commit, in the background.** The reply never waits for the
 graph and never fails because of it.
 *Trade-off:* the graph lags by milliseconds, and a sync in flight is lost if the process
-dies. `scripts/rebuild_graph.py` repairs that.
+dies. A failed sync is retried once after 10 s (safe: it's a reconciliation), and
+`scripts/rebuild_graph.py` repairs anything beyond that.
 
 **D4. Reconcile whole parties, not diffs.** Each event resyncs the parties it names from
 Postgres. A correction that moves an entry from "Bolu" to "Bola" names both, so the debt
@@ -547,7 +596,9 @@ clearly in the FalkorDB Browser.
 - The driver's constructor makes a blocking connection (it checks for cluster mode), so
   the client is built lazily, in a worker thread, on first use.
 - Socket and query timeouts are 2 s.
-- Failures become `GraphMemoryError` and are retried on the next call.
+- Failures become `GraphMemoryError`; the client reconnects on the next call, and the sync
+  and the curator each retry once after a delay. Writes are not retried by the driver: a
+  timed-out `CREATE` may have happened, and replaying it would duplicate a promise.
 - `/health` reports `"graph": "ok" | "unavailable" | "off"` but still returns 200.
 - Compose starts the app once FalkorDB has *started*, not waiting for it to be *healthy*.
 
@@ -570,6 +621,74 @@ is the reviewable surface that Rule 10 asks submissions to document.
 prunes. Only `--wipe` (and never together with `--all`) deletes a trader's graph, because
 aliases and facts can't be recreated from Postgres.
 
+**D16. Routing is plain code; only a handoff is the model's call.** A forwarded alert and
+"remind" are easy to recognise, and a supervisor model would add a call (and tokens) to
+every message. A misroute costs one handoff, never a wrong answer. At most one handoff per
+message.
+*Trade-off:* the routing rules are regexes that need maintaining as phrasing varies; the
+handoff is the safety net.
+
+**D17. Each agent has its own short prompt and only its tools.** The Recorder no longer
+carries reminder or alert rules, the Collector no recording examples. Fewer tokens per call
+and fewer wrong tool choices. Shared money and safety rules go to every agent.
+
+**D18. Recall is code, not a model call.** People are found by matching the message
+against known names and aliases (longest match first), in milliseconds. The model only
+sees the result, as a short prompt section.
+
+**D19. Promises and "kept" come from the ledger, not the model.** A due date on an entry
+*is* a promise; clearing the debt by the due date (dated by the repayment, not the day the
+sync runs) *is* keeping it. Code does both. This changed from the design doc, where the
+curator model was to extract promises: it's computable, so it's computed.
+
+**D20. The model proposes, code disposes.** The curator's model returns `MemoryOp`s
+(aliases, stated usual orders, do-not-remind, roles). Each is validated: the person must
+exist; an alias must appear in the conversation; an alias can't swallow a person who has
+ledger entries or graph records of their own; a restated fact is a no-op. Rejections are
+logged with reasons.
+
+**D21. The curator only calls the model when something could be remembered**: a known or
+possible person in the message, a named entry recorded, or a question just answered. "Who
+owe me?" costs no curator call.
+*Trade-off:* a new nickname for someone never mentioned before, in a message with no entry,
+is missed. It'll come up again with an entry.
+
+**D22. The curator can run on its own, cheaper model** (`CURATOR_MODEL`, default
+`LLM_MODEL`). It fills in a small form and code checks everything it returns. Its calls
+share the provider rate limit with the agents, so a smaller model frees headroom.
+
+**D23. JSON-schema structured output for the curator.** With tool calling, `gpt-oss` on
+Groq sometimes called a made-up `commentary` tool, or no tool when there was nothing to
+say, and Groq failed the request. Groq's JSON-schema mode avoids both. Providers without it
+fall back to tool calling.
+
+**D24. Ambiguous new names are refused in code.** If a new name strongly resembles a known
+person ("Chidi's mum" when Chidi and Mama Chidi exist; "Mama C" for Mama Chidi), the record
+tool refuses until the user says who they mean, and blocks the candidates for the rest of
+that message so the model can't just pick one. A name only counts as confirmed new if the
+previous assistant message asked about it.
+*Trade-off:* one extra question in genuinely ambiguous cases. A customer's debts split
+across two names is much worse.
+
+**D25. Weak resemblance is a hint, never a block, and the hint says "different person".**
+"Chidi" when only "Mama Chidi" is known is most likely someone else (her son). Blocking it
+stopped a real Chidi being recorded; hinting "maybe the same" made the model file his
+₦2,000 under Mama Chidi. Both happened in live runs.
+
+**D26. A reply that claims a recording must be backed by one.** If the Recorder or Alert
+matcher says "I don record…" but no ledger tool ran and no entry was written, the team
+re-runs it once, telling it nothing was saved. Seen live: "I don add sale: Pastor John…"
+with nothing in the ledger.
+*Trade-off:* a false alarm (a reply that merely sounds like a claim) costs one model call.
+
+**D27. Two FalkorDB query quirks, worked around** (FalkorDB at the pinned digest):
+- After a `WITH … collect()`, an `OPTIONAL MATCH` with any property filter (inline
+  `{open: true}` or `WHERE`) matches nothing, while the same match unfiltered works. Recall
+  therefore collects values and filters in Python. A regression test covers it.
+- Relationship types can't be parameters, so the role queries exist once per type
+  (`CUSTOMER_OF`, `SUPPLIER_OF`), chosen from a dict: still constants, never string-built
+  from input.
+
 ### 9.5 Error handling
 
 | Where | Fails how | What happens |
@@ -582,6 +701,15 @@ aliases and facts can't be recreated from Postgres.
 | `GraphSync.on_ledger_changed` | `GraphMemoryError` | `graph_sync.failed` warning; the graph is behind until the next change or a rebuild |
 | `main.lifespan` | FalkorDB down at startup | `graph_memory.unreachable_at_startup` error; the app starts anyway |
 | `scripts/rebuild_graph.py` | One trader fails | Logged, reported, exit code 1; other traders continue. Safe to re-run |
+| `GraphSync.on_ledger_changed` (retry) | Second failure | `graph_sync.failed attempt=2`; behind until next change or rebuild |
+| `memory.recall.recall` | Graph unavailable | `recall.failed`; the agents run without memory (the reply still goes out) |
+| `Curator._safe_curate` | Anything at all | `curator.crashed` with traceback; the reply was already sent |
+| `Curator.curate` | Graph fails before writing | `curator.graph_failed`, one retry after 10 s (`curator.retrying`) |
+| `Curator._propose` | Model error / bad output | `curator.model_failed` (error type, provider problem, detail) or `curator.model_bad_output`; no memory from that turn |
+| `Curator._apply` | Invalid op, or graph error on one op | Rejected with a reason (`curator.done rejected=[…]`); other ops still apply |
+| `extract_transactions_tool` | Ambiguous new name | Returns an error to the agent, which asks the user; nothing is recorded |
+| `agents/team.py` node | Claimed recording, nothing recorded | `team.unbacked_claim`, one re-run; `team.unbacked_claim_again` if it happens twice |
+| `agents/team.py` | Second handoff attempted | `team.handoff_refused`; the second agent's reply is used |
 
 ### 9.6 Log events
 
@@ -599,6 +727,13 @@ Structured JSON via structlog (`utils.logger`).
 | `graph.query` | debug | Every query, with op name and ms |
 | `graph.query_failed` | warning | Failed query: op, graph, error type |
 | `ledger_event.handler_failed` | error | A listener crashed (with traceback) |
+| `recall.done` / `recall.failed` | info / warning | People found in a message (counts, ms), or graph unavailable |
+| `team.routed` | info | Which agent got the message, and why |
+| `team.agent_ran` | info | An agent finished (ms, and who it handed off to) |
+| `team.handoff_refused` | warning | A second handoff was attempted |
+| `team.unbacked_claim` / `team.unbacked_claim_again` | warning / error | Reply claimed a recording that didn't happen |
+| `curator.done` | info | Promises, inferred orders, whether the model was asked, ops applied / unchanged / rejected (with reasons), ms |
+| `curator.model_failed`, `curator.graph_failed`, `curator.retrying`, `curator.crashed` | warning / error | See 9.5 |
 
 ### 9.7 The Cypher the product runs
 
@@ -613,6 +748,16 @@ All in `memory/falkor.py`:
 | `SET_INFERRED_CUSTOMER` / `DROP_INFERRED_CUSTOMER` | Customer role from the ledger |
 | `REMOVE_STALE_DEBTS` | Drop these parties' debts the ledger no longer has, and their promises |
 | `PRUNE_DEBTS` | Same, for the whole graph (rebuild) |
+| `MARK_KEPT` | Open promises whose debt was cleared by the due date → `kept` (part of every sync) |
+| `PARTY_NAMES`, `ALIAS_NAMES` | Every name the trader uses, for recall |
+| `RECALL` | Roles, aliases, open debts, promises and facts for a set of parties |
+| `CURRENT_FACT`, `DEBT_PARTY`, `OPEN_PROMISES` | Small lookups the curator validates against |
+| `ADD_ALIAS` | Alias → party, with provenance |
+| `REMOVE_EMPTY_PARTY` | Delete a party with nothing attached (a misheard name folded into an alias) |
+| `ADD_PROMISE`, `SET_PROMISE_STATUS` | Promises and their outcomes |
+| `ADD_FACT`, `CLOSE_FACT` | Usual orders and do-not-remind; a new fact closes the old one (`valid_to`) |
+| `DELETE_INFERRED_ROLE`, `COUNT_CURRENT_STATED_ROLE`, `CLOSE_STATED_ROLE`, `CREATE_STATED_ROLE` | Stated roles, one constant per relationship type |
+| `_SOURCE` (fragment) | `WRITTEN_BY` the agent and, if there's a message, `LEARNED_FROM` it |
 
 ### 9.8 Running and operating it
 
@@ -620,7 +765,43 @@ All in `memory/falkor.py`:
   http://localhost:3000 (connect to host `localhost`, port `6379`). Each trader's graph is
   `trader_<user_id>`.
 - Settings: `GRAPH_MEMORY` (`falkordb` / `off`), `FALKORDB_HOST`, `FALKORDB_PORT`,
-  `FALKORDB_PASSWORD`, `FALKORDB_TIMEOUT_SECONDS`, `FALKORDB_BROWSER`.
+  `FALKORDB_PASSWORD`, `FALKORDB_TIMEOUT_SECONDS`, `FALKORDB_BROWSER`, `CURATOR_MODEL`.
 - After an outage, or to backfill existing traders:
   `uv run python -m scripts.rebuild_graph --all` (or `--user 12`).
 - Health: `GET /health` → `{"status": "ok", "graph": "ok"}`.
+
+### 9.9 What the live runs found
+
+Unit tests use scripted models. Before closing Day 2, the scenario's first messages were
+run end to end against the real model (Groq `gpt-oss-120b`), FalkorDB and a throwaway
+ledger, repeatedly, fixing what broke:
+
+| Run | Found | Fix |
+|---|---|---|
+| 1 | Closed facts still showing as current; every open-debt count 0 | FalkorDB quirk (D27): filter in Python |
+| 1 | Asking for a reminder made the curator lift "don't remind" | Curator rule: a request isn't permission |
+| 1 | Curator calls failing (`commentary` tool, no tool) | JSON-schema structured output (D23) |
+| 1 | The Recorder ignored the "ask which one" hint and created "Chidi's mum" as a new person | Ambiguous names refused in code (D24) |
+| 2 | A real, different "Chidi" refused, and later merged into Mama Chidi | Weak resemblance is a hint only (D25); never absorb a name with ledger entries (D20) |
+| 3 | The model confirmed a new name itself to get past the refusal | Confirmation only counts if the previous message asked (D24) |
+| 3 | A 30-second stall in the graph connection lost one sync and one promise | One delayed retry for sync and curator (D3, D10) |
+| 4 | "I don add sale: Pastor John" with nothing recorded | Unbacked-claim check (D26) |
+| 5 | The curator learned an alias from the assistant's question, a turn early | Curator rule: only the trader's own words confirm |
+
+The final run: every claimed recording reached the ledger; "Chidi's mum" was asked about,
+learned as Mama Chidi's alias, then recognised without asking; Chidi stayed a separate
+person; "don't remind Pastor John" was remembered and the Collector checked before
+drafting.
+
+### 9.10 Known limitations
+
+- Routing regexes are English/Pidgin-specific; unusual phrasings fall to the Recorder and
+  rely on a handoff.
+- The curator's judgement (when something is a stated alias, a usual order, a role
+  change) is a model's: validated, logged and correctable, but not guaranteed. The
+  scenario in `docs/hackathon-scenario.md` is the eval for it (Day 4).
+- A memory missed because the graph was down for longer than one retry is not replayed;
+  ledger structure comes back with a rebuild, learned memory from that turn doesn't.
+- Recall's name matching is word-based: "Mama Nkechi" and "Nkechi's mum" are not linked
+  unless the trader links them.
+

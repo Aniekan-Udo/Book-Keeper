@@ -54,7 +54,7 @@ def agent(monkeypatch):
     control what the next call does."""
     class Agent:
         calls: list[dict] = []
-        reply = "Recorded."
+        reply = "OK."  # not "Recorded.": the team re-runs an agent that claims a recording it never made
         transactions: list[dict] = []
         error: Exception | None = None
 

@@ -6,6 +6,9 @@ env vars only — `provider:model`, as LangChain's init_chat_model takes them.
                          e.g.    google_genai:gemini-3.8-flash    (GOOGLE_API_KEY)
     VISION_MODEL         reading alert screenshots; must accept images
                          default groq:qwen/qwen3.8-27b
+    CURATOR_MODEL        the memory curator (memory/curator.py), which runs after each reply
+                         default: LLM_MODEL. A smaller, faster model is fine: it fills in a
+                         small structured form, and code checks everything it proposes
     TRANSCRIPTION_MODEL  voice notes (see tools/transcribe.py)
                          default groq:whisper-large-v3  — Groq's speech-to-text API
                          or a chat model that accepts audio, e.g. google_genai:gemini-3.8-flash
@@ -46,6 +49,11 @@ def _build(model: str, timeout: int) -> BaseChatModel:
 @lru_cache(maxsize=1)
 def get_chat_model() -> BaseChatModel:
     return _build(os.getenv("LLM_MODEL", DEFAULT_MODEL), timeout=30)
+
+
+@lru_cache(maxsize=1)
+def get_curator_model() -> BaseChatModel:
+    return _build(os.getenv("CURATOR_MODEL") or os.getenv("LLM_MODEL", DEFAULT_MODEL), timeout=30)
 
 
 @lru_cache(maxsize=1)

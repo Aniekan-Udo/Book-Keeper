@@ -1,5 +1,5 @@
 from datetime import date as date_type, datetime, timezone
-from typing import Optional, Literal
+from typing import Callable, Optional, Literal
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -70,18 +70,54 @@ def _describe_for_user(r: TransactionORM) -> str:
 
 # ── factory: builds tools bound to a specific db session and user ──
 def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = None,
-                request_started_at: datetime | None = None):
+                request_started_at: datetime | None = None, touched: list | None = None,
+                could_be: Callable[[str], list[str]] | None = None, last_reply: str = ""):
     """`clarifications`, if given, collects amount prompts raised during this request so the
     endpoint can hand them to the client as structured data, not just reply text.
-    `request_started_at` stops a reminder drafted in this request from also being sent in it."""
+    `request_started_at` stops a reminder drafted in this request from also being sent in it.
+    `touched`, if given, collects the entries recorded or corrected in this request (as
+    ledger.describe dicts), for the memory curator.
+    `could_be(name)`, from graph memory (memory.recall.Recalled.could_be), returns the known
+    people a new name might really be. Recording under such a name is refused until the user
+    has said who they mean, so one customer's debts don't split across two names.
+    `last_reply` is the assistant's previous message: a name only counts as confirmed new
+    if that message asked about it (the model can't wave its own guess through)."""
     started = request_started_at or datetime.now(timezone.utc)
+    # people a refused name might be: blocked for the rest of this request, so the agent
+    # asks the user instead of picking one of them itself
+    unresolved: dict[str, str] = {}
+    refused: set[str] = set()
+    asked = " ".join(last_reply.lower().split())
 
     @tool
-    async def extract_transactions_tool(transactions: list[TransactionInput]) -> dict:
-        """Record what happened: sales, expenses, loans, repayments — one item per transaction mentioned."""
+    async def extract_transactions_tool(transactions: list[TransactionInput],
+                                        confirmed_new_names: Optional[list[str]] = None) -> dict:
+        """Record what happened: sales, expenses, loans, repayments — one item per transaction mentioned. confirmed_new_names: names the user confirmed are new people, not someone already known."""
+        if could_be:
+            # confirmed only if the previous message asked about the name, and not a name
+            # refused earlier in this same request (the user hasn't answered yet)
+            confirmed = {k for k in (" ".join(n.lower().split()) for n in (confirmed_new_names or []))
+                         if k in asked and k not in refused}
+            for t in transactions:
+                key = " ".join(t.party.lower().split()) if t.party else ""
+                if not key or key in confirmed:
+                    continue
+                candidates = could_be(t.party)
+                if candidates:
+                    refused.add(key)
+                    for c in candidates:
+                        unresolved[c.lower()] = t.party
+                    return {"error": (f'Nothing recorded yet: "{t.party}" could be {" or ".join(candidates)}. '
+                                      "Ask the user who they mean (or if it's someone new). Record nothing until "
+                                      "they answer.")}
+                if key in unresolved:
+                    return {"error": (f'Nothing recorded yet: the user hasn\'t said whether "{unresolved[key]}" '
+                                      f"is {t.party}. Ask them first.")}
         result = await persist_transactions(db, transactions, user_id)
         if clarifications is not None:
             clarifications.extend(result["clarifications"])
+        if touched is not None:
+            touched.extend(result["logged"])
         return result
 
     @tool
@@ -150,9 +186,12 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
         """Fix an entry ("it was 45k not 50k", "na Tunde, no be Tayo", add a due date). Fill only fields that change; no id = the entry from the last message."""
         fields = correction.model_dump(exclude={"transaction_id"}, exclude_none=True)
         try:
-            return await correct_transaction(db, user_id, correction.transaction_id, **fields)
+            result = await correct_transaction(db, user_id, correction.transaction_id, **fields)
         except LedgerError as e:
             return {"error": str(e)}
+        if touched is not None:
+            touched.append(result["updated"])
+        return result
 
     @tool
     async def save_contact_tool(name: str, phone: str) -> dict:

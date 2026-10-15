@@ -64,7 +64,7 @@ async def test_reply_keeps_its_trace_id(db, monkeypatch):
 
     async def handle_message(text, prompt, tools, history=None, callbacks=None):
         seen["callbacks"] = callbacks
-        return {"messages": [AIMessage(content="Recorded.")]}
+        return {"messages": [AIMessage(content="OK.")]}
 
     tracer = FakeTracer("trace-abc")
     monkeypatch.setattr(assistant, "message_tracer", lambda user_id, channel: tracer)
@@ -82,7 +82,7 @@ async def test_no_tracer_no_callbacks(db, monkeypatch):
 
     async def handle_message(text, prompt, tools, history=None, callbacks=None):
         seen["callbacks"] = callbacks
-        return {"messages": [AIMessage(content="Recorded.")]}
+        return {"messages": [AIMessage(content="OK.")]}
 
     monkeypatch.setattr(router, "handle_message", handle_message)
     await assistant.respond(db, 1, "I sold rice 5k", channel="web")

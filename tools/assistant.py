@@ -1,7 +1,12 @@
 """One conversation turn, the same for every channel (web chat, WhatsApp).
 
-Loads the user's recent history and any entries still waiting for an amount, runs the
-agent, and remembers the exchange — so a follow-up like "15k" or "cancel that" makes sense.
+    recall (graph memory about the people mentioned)
+      → the agent team (agents/team.py: routed to the Recorder, Collector or Alert matcher)
+      → save the exchange
+      → the memory curator, in the background (memory/curator.py)
+
+Short-term memory is the recent history and entries still waiting for an amount, so a
+follow-up like "15k" or "cancel that" makes sense. Long-term memory is the graph.
 """
 import weakref
 import asyncio
@@ -11,13 +16,16 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agents.team import TurnContext, run_team
 from db import ConversationTurn, TransactionORM
+from memory import get_curator, get_graph_memory
+from memory.curator import Turn
+from memory.recall import prompt_section, recall
 from observability import message_tracer, trace_id_of
 from tools.clean_version import build_tools
 from tools.alerts import pending_alerts
 from tools.debt_collection import pending_drafts
-from tools.prompts import router_sys_msg
-from tools import router
+from utils import logger
 
 HISTORY_WINDOW = timedelta(minutes=30)  # older than this, a new message starts a new conversation
 HISTORY_TURNS = 8
@@ -69,23 +77,42 @@ async def respond(db: AsyncSession, user_id: int, text: str, channel: str) -> As
     async with lock:
         started = datetime.now(timezone.utc)
         history = await load_history(db, user_id)
-        pending = await pending_amounts(db, user_id)
-        drafts = await pending_drafts(db, user_id)
-        alerts_waiting = await pending_alerts(db, user_id)
+        recalled = await recall(get_graph_memory(), user_id, text)  # never raises
 
         clarifications: list[dict] = []
-        tools = build_tools(db, user_id, clarifications, request_started_at=started)
-        prompt = router_sys_msg(channel, pending, drafts, alerts_waiting, message=text)
+        touched: list[dict] = []
         tracer = message_tracer(user_id, channel)
-        result = await router.handle_message(text, prompt, tools, history,
-                                             callbacks=[tracer] if tracer else None)
-        reply = result["messages"][-1].text or FALLBACK_REPLY
+        ctx = TurnContext(
+            text=text, channel=channel, history=history, user_id=user_id,
+            tools=build_tools(db, user_id, clarifications, request_started_at=started, touched=touched,
+                              could_be=recalled.could_be,
+                              last_reply=next((h["content"] for h in reversed(history) if h["role"] == "assistant"),
+                                              "")),
+            pending_amounts=await pending_amounts(db, user_id),
+            reminder_drafts=await pending_drafts(db, user_id),
+            pending_alerts=await pending_alerts(db, user_id),
+            memory=prompt_section(recalled),
+            callbacks=[tracer] if tracer else None,
+            touched=touched,
+        )
+        team = await run_team(ctx)
+        reply = team.result["messages"][-1].text or FALLBACK_REPLY
 
+        user_turn = ConversationTurn(user_id=user_id, role="user", content=text, channel=channel)
         db.add_all([
-            ConversationTurn(user_id=user_id, role="user", content=text, channel=channel),
+            user_turn,
             # the Opik trace of how this reply was produced, for the pilot report to point at
             ConversationTurn(user_id=user_id, role="assistant", content=reply, channel=channel,
                              trace_id=trace_id_of(tracer)),
         ])
+        await db.flush()
+        turn_id = user_turn.id  # read before commit expires it
         await db.commit()
+
+        get_curator().schedule(Turn(
+            user_id=user_id, turn_id=turn_id, message=text, reply=reply, channel=channel,
+            history=history, touched=touched, recalled=recalled,
+        ))
+        logger.debug("assistant.turn", user_id=user_id, agents=team.trail, route=team.route_reason,
+                     touched=len(touched), remembered=len(recalled.people))
         return AssistantReply(reply=reply, clarifications=clarifications)

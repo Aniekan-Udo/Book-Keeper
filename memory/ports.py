@@ -4,9 +4,10 @@ Adapters implement it: memory/falkor.py (FalkorDB, the real one) and memory/null
 nothing, for when graph memory is switched off). Application code depends only on this
 Protocol, never on an adapter, so the store can be swapped or faked in tests.
 """
+from datetime import date
 from typing import Protocol
 
-from memory.models import PartySnapshot
+from memory.models import KnownName, PartyMemory, PartySnapshot, Source
 
 
 class GraphMemory(Protocol):
@@ -32,6 +33,65 @@ class GraphMemory(Protocol):
 
     async def delete_trader_graph(self, user_id: int) -> None:
         """Erase one trader's whole graph, learned memory included. Raises GraphMemoryError."""
+        ...
+
+    # ── reading memory ─────────────────────────────────────────────────────
+
+    async def known_names(self, user_id: int) -> list[KnownName]:
+        """Every party key and current alias, to find people mentioned in a message.
+        Raises GraphMemoryError."""
+        ...
+
+    async def recall(self, user_id: int, party_keys: list[str]) -> list[PartyMemory]:
+        """What's remembered about these parties. Raises GraphMemoryError."""
+        ...
+
+    async def current_fact(self, user_id: int, party_key: str, kind: str) -> dict | None:
+        """The fact of this kind still in force for a party (its properties), if any."""
+        ...
+
+    async def debt_party(self, user_id: int, pg_id: int) -> tuple[str, str] | None:
+        """(party key, debt kind) for a debt node, or None if the graph doesn't have it."""
+        ...
+
+    async def open_promises(self, user_id: int, pg_id: int) -> list[tuple[str, str]]:
+        """(promise id, due) of open promises about one debt."""
+        ...
+
+    # ── writing memory (curator) ───────────────────────────────────────────
+    # Every write records its Source: LEARNED_FROM the message, WRITTEN_BY the agent.
+
+    async def add_alias(self, user_id: int, alias_key: str, alias_text: str, party_key: str,
+                        kind: str, source: Source) -> None:
+        ...
+
+    async def remove_empty_party(self, user_id: int, party_key: str) -> bool:
+        """Delete a party that has no debts, promises or facts (e.g. a misheard name that
+        turned out to be an alias). Returns True if it was deleted."""
+        ...
+
+    async def add_promise(self, user_id: int, pg_id: int, due: date, source: Source) -> str:
+        """A promise to pay this debt by `due`. Returns the promise id."""
+        ...
+
+    async def set_promise_status(self, user_id: int, promise_id: str, status: str,
+                                 paid_fraction: float | None, on: date) -> None:
+        ...
+
+    async def set_fact(self, user_id: int, party_key: str, kind: str, summary: str, source: Source,
+                       confidence: str, said: str | None = None, data: str | None = None,
+                       until: date | None = None) -> None:
+        """Record a fact, closing any earlier fact of the same kind for this party."""
+        ...
+
+    async def close_fact(self, user_id: int, party_key: str, kind: str, source: Source) -> int:
+        """End the fact of this kind in force for a party. Returns how many were closed."""
+        ...
+
+    async def set_stated_role(self, user_id: int, party_key: str, role: str, active: bool,
+                              source: Source) -> None:
+        """What the trader said about a role ("na my supplier", "e no dey buy again"). A
+        stated role replaces an inferred one and stops further inference."""
         ...
 
     async def close(self) -> None:

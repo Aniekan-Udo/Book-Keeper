@@ -167,11 +167,30 @@ async def test_sync_sends_snapshots_of_the_changed_parties(db_session, test_user
 
 async def test_sync_swallows_graph_failures(db_session, test_user):
     await persist_transactions(db_session, [sale("Emeka", 60000, paid=0)], test_user.id)
-    sync = GraphSync(FakeMemory(fail=True), session_factory(db_session))
+    memory = FakeMemory(fail=True)
+    sync = GraphSync(memory, session_factory(db_session), retry_delay=0)
 
     # must not raise: the ledger has committed, the graph catches up later
     await sync.on_ledger_changed(LedgerChanged(user_id=test_user.id, party_keys=frozenset({"emeka"}),
                                                reason="recorded"))
+
+
+async def test_sync_retries_once_after_a_blip(db_session, test_user):
+    await persist_transactions(db_session, [sale("Emeka", 60000, paid=0)], test_user.id)
+
+    class FlakyOnce(FakeMemory):
+        failures = 1
+
+        async def sync_parties(self, user_id, parties):
+            if self.failures:
+                self.failures -= 1
+                raise GraphMemoryError("timeout")
+            self.calls.append((user_id, parties))
+
+    memory = FlakyOnce()
+    await GraphSync(memory, session_factory(db_session), retry_delay=0).on_ledger_changed(
+        LedgerChanged(user_id=test_user.id, party_keys=frozenset({"emeka"}), reason="recorded"))
+    assert len(memory.calls) == 1
 
 
 # ── FalkorDB adapter (real engine) ───────────────────────────────────────────

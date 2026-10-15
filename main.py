@@ -17,8 +17,11 @@ from authentication.settings import settings
 from channels import whatsapp
 from db import User, get_db, get_db_session
 from endpoints import login, logout, registration, statements, whatsapp_auth
-from memory import build_graph_memory, get_graph_memory, set_graph_memory
+from llm import get_curator_model
+from memory import build_graph_memory, get_graph_memory, set_curator, set_graph_memory
+from memory.curator import Curator
 from memory.sync import GraphSync
+from observability import message_tracer
 from tools.assistant import respond
 from tools.ledger_events import ledger_events
 from tools.ledger import LedgerError, resolve_clarification
@@ -32,6 +35,8 @@ async def lifespan(_: FastAPI):
     memory = build_graph_memory()
     set_graph_memory(memory)
     graph_sync = GraphSync(memory, get_db)
+    curator = Curator(memory, get_db, model_factory=get_curator_model, tracer_factory=message_tracer)
+    set_curator(curator)
     if memory.enabled:
         if await memory.ping():
             logger.info("graph_memory.ready")
@@ -42,7 +47,9 @@ async def lifespan(_: FastAPI):
         yield
     finally:
         ledger_events.unsubscribe(graph_sync.on_ledger_changed)
-        await ledger_events.drain()  # let in-flight syncs finish before closing the store
+        # let in-flight curation and syncs finish before closing the store
+        await curator.drain()
+        await ledger_events.drain()
         await memory.close()
 
 

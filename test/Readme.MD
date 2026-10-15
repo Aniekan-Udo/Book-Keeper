@@ -26,6 +26,9 @@ TEST_DATABASE_URL="postgresql+asyncpg://test:test@localhost:5434/test_db" uv run
   for the logged-in user (LLM stubbed).
 - `test_whatsapp*.py`, `test_voice_notes.py`, `test_debt_collection.py`, `test_statements.py`,
   `test_bank_alerts.py`, `test_whatsapp_signup.py` — the WhatsApp channel and features.
+- `test_agent_team.py` — routing, each agent's tools, handoffs, the unbacked-claim retry.
+- `test_memory_curator.py` — recall's name matching, the curator (real FalkorDB, scripted model),
+  and the record tool refusing ambiguous names.
 - `test_graph_memory.py` — graph memory: ledger change events, ledger → party snapshots,
   and the FalkorDB adapter against a real FalkorDB (skipped if none is running).
 - `../tools/test/test_ledger.py` — the money rules: debt settlement, loans, reports,
