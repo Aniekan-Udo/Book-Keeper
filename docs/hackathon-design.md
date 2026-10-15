@@ -5,8 +5,9 @@ Oct 18 11:59 PM IST, 2026. Rules: https://www.wemakedevs.org/hackathons/falkordb
 
 **Track:** Agent Memory and Coordination.
 
-These are planning notes, written before the event (allowed by Rule 8). No FalkorDB code
-is written until Oct 15.
+Planning notes, written before the event. The organizers confirmed that, since Book-Keeper
+had never been deployed, the whole project counts as the hackathon submission, not only the
+FalkorDB work. Implementation decisions are recorded in `Documentation.MD` §9.
 
 ## The problem
 

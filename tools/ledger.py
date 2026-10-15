@@ -16,6 +16,7 @@ from config import LooseDate, business_today
 from db import TransactionORM, RepaymentAllocation
 from tools.contacts import save_contact
 from tools.formatting import format_naira
+from tools.ledger_events import LedgerChanged, ledger_events
 
 ZERO = Decimal("0.00")
 
@@ -61,6 +62,13 @@ def to_money(value) -> Decimal | None:
 
 def _party_key(party: str | None) -> str | None:
     return party.strip().lower() if party and party.strip() else None
+
+
+def _announce(user_id: int, parties, reason: str) -> None:
+    """Tell listeners (the graph memory) which parties' entries changed. Call only after a
+    successful commit; never raises."""
+    keys = frozenset(k for k in (_party_key(p) for p in parties) if k)
+    ledger_events.publish(LedgerChanged(user_id=user_id, party_keys=keys, reason=reason))
 
 
 def _settle(row: TransactionORM) -> None:
@@ -211,10 +219,12 @@ async def persist_transactions(db: AsyncSession, transactions: list[TransactionI
             "clarifications": [clarification_for(r) for r in rows if r.status == "needs_amount"],
             "notes": notes,
         }
+        parties = [r.party for r in rows]
         await db.commit()
     except Exception:
         await db.rollback()
         raise
+    _announce(user_id, parties, "recorded")
     return result
 
 
@@ -267,10 +277,12 @@ async def delete_transactions(db: AsyncSession, user_id: int, transaction_id: in
                 await _apply_repayment(db, rep)
 
         result = {"deleted": [describe(r) for r in rows]}
+        parties = [r.party for r in rows]
         await db.commit()
     except Exception:
         await db.rollback()
         raise
+    _announce(user_id, parties, "deleted")
     return result
 
 
@@ -292,6 +304,7 @@ async def correct_transaction(db: AsyncSession, user_id: int, transaction_id: in
                 options = "; ".join(f"#{r.id} {r.type} {r.item or r.party or ''}".strip() for r in batch)
                 raise LedgerError(f"Your last message recorded several entries ({options}). Which one should I change?")
             row = batch[0]
+        party_before = row.party
 
         # take all repayment effects off this row, edit it, then put them back
         affected = [] if row.type == "debt_repayment" else await _repayments_applied_to(db, row.id)
@@ -319,10 +332,12 @@ async def correct_transaction(db: AsyncSession, user_id: int, transaction_id: in
             await _apply_repayment(db, rep)
 
         result = {"updated": describe(row), "notes": notes}
+        parties = [party_before, row.party]  # both, if the correction moved it to someone else
         await db.commit()
     except Exception:
         await db.rollback()
         raise
+    _announce(user_id, parties, "corrected")
     return result
 
 

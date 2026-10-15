@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Header, Depends, HTTPException, Request
@@ -14,14 +15,38 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from authentication.auth import get_current_user
 from authentication.settings import settings
 from channels import whatsapp
-from db import User, get_db_session
+from db import User, get_db, get_db_session
 from endpoints import login, logout, registration, statements, whatsapp_auth
+from memory import build_graph_memory, get_graph_memory, set_graph_memory
+from memory.sync import GraphSync
 from tools.assistant import respond
+from tools.ledger_events import ledger_events
 from tools.ledger import LedgerError, resolve_clarification
 from tools.router import LLMUnavailable
 from utils import get_cached_response, limiter, logger, store_response
 
-app = FastAPI(title="AI Book-Keeper")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Start graph memory. If FalkorDB is unreachable the app still starts: the ledger
+    never depends on the graph; memory features catch up via scripts/rebuild_graph.py."""
+    memory = build_graph_memory()
+    set_graph_memory(memory)
+    graph_sync = GraphSync(memory, get_db)
+    if memory.enabled:
+        if await memory.ping():
+            logger.info("graph_memory.ready")
+        else:
+            logger.error("graph_memory.unreachable_at_startup")
+        ledger_events.subscribe(graph_sync.on_ledger_changed)
+    try:
+        yield
+    finally:
+        ledger_events.unsubscribe(graph_sync.on_ledger_changed)
+        await ledger_events.drain()  # let in-flight syncs finish before closing the store
+        await memory.close()
+
+
+app = FastAPI(title="AI Book-Keeper", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -87,12 +112,15 @@ class ResolveClarificationRequest(BaseModel):
 
 @app.get("/health", include_in_schema=False)
 async def health(db: AsyncSession = Depends(get_db_session)):
-    """For uptime monitors: the app is serving and the database answers."""
+    """For uptime monitors: the app is serving and the database answers. The graph is
+    reported but doesn't fail the check: bookkeeping works without it."""
     try:
         await db.execute(text("SELECT 1"))
     except Exception:
         return JSONResponse({"status": "database unavailable"}, status_code=503)
-    return {"status": "ok"}
+    memory = get_graph_memory()
+    graph = "off" if not memory.enabled else ("ok" if await memory.ping() else "unavailable")
+    return {"status": "ok", "graph": graph}
 
 
 @app.get("/api/v1/me")

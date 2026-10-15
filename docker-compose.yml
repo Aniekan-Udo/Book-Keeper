@@ -2,8 +2,10 @@
 # Server (pilot/prod): docker compose --profile production up -d --build
 #                      → https://$DOMAIN via Caddy (automatic HTTPS)
 #
-# Postgres and the app are only reachable from the machine itself (127.0.0.1); the
-# internet only ever talks to Caddy on 80/443.
+# Postgres, FalkorDB and the app are only reachable from the machine itself (127.0.0.1);
+# the internet only ever talks to Caddy on 80/443.
+# FalkorDB Browser (graph explorer): http://localhost:3000, connect to falkordb:6379 /
+# localhost:6379 from the host.
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -23,6 +25,24 @@ services:
       timeout: 5s
       retries: 5
 
+  falkordb:
+    # pinned by digest: the graph engine's behaviour (Cypher, constraints) shouldn't change
+    # under us on a rebuild. To upgrade: pull the new image, run the tests, update the digest.
+    image: falkordb/falkordb@sha256:107455e862a824e45e8e9f5a7fbfdf5e00a08b14e13eae2577c72fd9e3f59ba6
+    restart: unless-stopped
+    environment:
+      BROWSER: ${FALKORDB_BROWSER:-1}
+    volumes:
+      - falkordb_data:/var/lib/falkordb/data
+    ports:
+      - "127.0.0.1:6379:6379"
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build: .
     restart: unless-stopped
@@ -30,6 +50,9 @@ services:
       - "127.0.0.1:8001:8001"
     environment:
       POSTGRES_URI: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      GRAPH_MEMORY: ${GRAPH_MEMORY:-falkordb}
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: 6379
       SESSION_IDLE_DAYS: ${SESSION_IDLE_DAYS:-30}
       SESSION_MAX_DAYS: ${SESSION_MAX_DAYS:-90}
       LLM_MODEL: ${LLM_MODEL:-groq:openai/gpt-oss-120b}
@@ -58,6 +81,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      # started, not healthy: the app runs without the graph if it has to
+      falkordb:
+        condition: service_started
 
   caddy:
     image: caddy:2
@@ -77,5 +103,6 @@ services:
 
 volumes:
   postgres_data:
+  falkordb_data:
   caddy_data:
   caddy_config:

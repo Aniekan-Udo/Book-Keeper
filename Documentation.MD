@@ -24,7 +24,10 @@ tools/clean_version.py  agent tools: extract, report, query, undo, correct
 tools/ledger.py         the money rules — recording, debt settlement, undo, corrections
 tools/generate_PnL.py, expenses.py, recievables.py   reports
                                    │
-Postgres (db.py models, migrations/ via Alembic)
+Postgres (db.py models, migrations/ via Alembic)        ← source of truth for money
+   │ after each commit: tools/ledger_events → memory/sync (background)
+   ▼
+FalkorDB (memory/)  one graph per trader: parties, debts, roles; learned memory (§9)
 ```
 
 The LLM only decides *which* tool to call and with what arguments. Every rule about
@@ -197,6 +200,9 @@ to the model, plus a list of entries still waiting for an amount, with their ids
 what lets a bare "15k" fill in the rice sale the assistant just asked about. Only user
 text and final replies are stored, not tool calls. Turns for one user are processed one
 at a time (per-process lock).
+
+**Long-term memory** (who people are, what they promised, what the trader wants) lives
+in the graph, not in conversation turns. See §9.
 
 **Dates** are Nigerian time (`config.business_today()`, Africa/Lagos) regardless of the
 server's timezone.
@@ -376,7 +382,8 @@ docker compose up --build    # runs migrate.py, then serves on :8001
 ```
 
 Without Docker: set `POSTGRES_URI`, then `uv run python migrate.py` and
-`uv run uvicorn main:app --reload`.
+`uv run uvicorn main:app --reload`. For graph memory, also run FalkorDB:
+`docker compose up -d falkordb` (or set `GRAPH_MEMORY=off`).
 
 ### Migrations
 
@@ -400,6 +407,11 @@ uv run pytest                                         # SQLite, no services need
 TEST_DATABASE_URL=postgresql+asyncpg://... uv run pytest   # against Postgres
 ```
 
+The FalkorDB adapter tests in `test/test_graph_memory.py` run against a real FalkorDB
+(`docker compose up -d falkordb`) and are skipped if none answers at
+`FALKORDB_TEST_HOST:FALKORDB_TEST_PORT` (default `127.0.0.1:6379`). They use their own
+`test_trader_*` graphs and delete them.
+
 ---
 
 ## 8. Production checklist
@@ -408,3 +420,207 @@ TEST_DATABASE_URL=postgresql+asyncpg://... uv run pytest   # against Postgres
 - `COOKIE_SECURE=true` (HTTPS).
 - `ALLOWED_ORIGINS` only if the web client is on another origin.
 - A paid LLM quota sized for traffic (the circuit breaker is not a substitute).
+- FalkorDB: `FALKORDB_BROWSER=0` (or keep port 3000 bound to 127.0.0.1 only, as compose
+  does), a password (`FALKORDB_PASSWORD` plus `--requirepass` on the server), and backups
+  of the `falkordb_data` volume — learned memory can't be rebuilt from Postgres.
+
+---
+
+## 9. Graph memory (FalkorDB)
+
+Built for Graph Hacks (WeMakeDevs × FalkorDB, Oct 15–18 2026), Track 2: Agent Memory and
+Coordination. Product design, the four agents and the demo scenario:
+`docs/hackathon-design.md`, `docs/hackathon-scenario.md`. This section records how it's
+built and why.
+
+**Goal.** The agent today forgets everything after 30 minutes (§5). Graph memory lets it
+learn a trader's business over time (who "Chidi's mum" is, who keeps promises, what "the
+usual" means, who not to chase) and lets several agents share that knowledge, with every
+fact traceable to the message it came from.
+
+**Status.**
+
+| Day | Built |
+|---|---|
+| 1 (Oct 15) | FalkorDB in compose; the GraphMemory port and FalkorDB adapter; ledger → graph sync; `rebuild_graph` |
+
+### 9.1 Architecture
+
+```
+tools/ledger.py ──commit──► tools/ledger_events.py      LedgerChanged(user_id, party_keys, reason)
+                                   │ background task, per subscriber
+                                   ▼
+                            memory/sync.py  GraphSync   reads Postgres → PartySnapshot[]
+                                   │
+                                   ▼
+                            memory/ports.py GraphMemory (Protocol)
+                              ├── memory/falkor.py  FalkorGraphMemory → FalkorDB graph trader_<id>
+                              └── memory/null.py    NullGraphMemory   (GRAPH_MEMORY=off, tests)
+
+main.py lifespan: build_graph_memory() → set_graph_memory() → subscribe GraphSync
+scripts/rebuild_graph.py: GraphSync.rebuild() for one or all traders
+```
+
+The ledger doesn't import anything from `memory/`. It only publishes events. The
+dependency points one way: `memory → tools.ledger_events`.
+
+### 9.2 Design patterns, and why each one is there
+
+| Pattern | Where | Why |
+|---|---|---|
+| **Ports and adapters** | `memory/ports.py` (port), `memory/falkor.py`, `memory/null.py` (adapters) | App code depends on what it needs ("sync these parties"), not on FalkorDB. The engine can be swapped or faked; all Cypher sits behind one interface |
+| **Observer / domain events** | `tools/ledger_events.py` | The money rules stay free of graph code. A slow or failing listener can't delay or break recording a sale |
+| **Null Object** | `NullGraphMemory` | "Memory off" is a real implementation, so callers never branch on `if memory is None` |
+| **Factory** | `memory.build_graph_memory()` | One place reads the environment and picks the adapter; the FalkorDB driver is only imported when used |
+| **Dependency injection** | `GraphSync(memory, session_factory)` | Production passes `db.get_db`; tests pass their rolled-back session and a fake store |
+| **Snapshot reconciliation** | `party_snapshots()` → `sync_parties()` | The graph is made to *match* the ledger for a party rather than replaying diffs. Idempotent, so live sync and full rebuild are the same code path, and a missed event is fixed by the next one |
+
+Deliberately **not** used:
+- **A message queue** (Redis streams, Celery). The events are in-process tasks. A queue would
+  survive a crash, but a rebuild already recovers anything lost, and a queue is one more
+  service to run during a 4-day build.
+- **Repositories per node type.** One adapter with named query constants keeps every
+  statement reviewable in one file.
+
+### 9.3 Graph model (implemented so far)
+
+One graph per trader, named `trader_<user_id>`.
+
+```
+(:Trader {id})
+(:Party {key, name, created_at})
+(:Debt {pg_id, kind, open, date, due}) -[:WITH]-> (:Party)
+(:Party) -[:CUSTOMER_OF {confidence, valid_from, valid_to}]-> (:Trader)
+```
+
+- `Party.key`: the normalised name, the same grouping the ledger uses for debts
+  (`lower(trim(party))`).
+- `Debt.kind`: `receivable` (they owe the trader) or `payable` (the trader owes them).
+- Unique constraints: `Party.key`, `Debt.pg_id`. Range index: `Alias.key`, ready for Day 2.
+
+Still to come (Days 2–3): `Alias`, `Promise`, `Fact`, `Message`, `Agent`, `Reminder`, and
+supplier roles. See the five memory types in `docs/hackathon-design.md`.
+
+### 9.4 Decisions and trade-offs
+
+**D1. Postgres keeps the money; the graph keeps structure.** Debt nodes store the Postgres
+id, which way the debt goes, and whether it's open, but never amounts.
+*Trade-off:* anything that needs a balance (the Collector) asks Postgres. Accepted:
+balances must come from the one place the money rules live (§2).
+
+**D2. One graph per trader.** One trader's memory can't leak into another's, even through
+a buggy query, and queries need no trader filter.
+*Trade-off:* no queries across traders. None are needed; the customer STOP list, which
+does span traders, stays in Postgres.
+
+**D3. Sync runs after the commit, in the background.** The reply never waits for the
+graph and never fails because of it.
+*Trade-off:* the graph lags by milliseconds, and a sync in flight is lost if the process
+dies. `scripts/rebuild_graph.py` repairs that.
+
+**D4. Reconcile whole parties, not diffs.** Each event resyncs the parties it names from
+Postgres. A correction that moves an entry from "Bolu" to "Bola" names both, so the debt
+moves.
+*Trade-off:* every change re-reads all of that party's entries. That's cheap at
+market-trader volumes, and correctness is worth more than the saved query.
+
+**D5. Only credit becomes a Debt node:** something still owed, a repayment ever applied,
+or a promised date. Cash sales stay out, so the graph stays small. Sales history for
+"usual order" is read from Postgres when needed.
+
+**D6. Repaid debts stay, as `open: false`.** Whether someone paid on time is promise
+history, which the Collector ranks on.
+
+**D7. Undone entries are removed, with any promise about them.** The party node stays,
+since it may carry learned memory (aliases, facts). A party whose entries are all undone
+is never *created*: a typo leaves no trace.
+
+**D8. Roles.** Customer is inferred from a first sale or loan given. Supplier is never
+inferred: buying from someone (e.g. paying a porter) doesn't make them a supplier. Once
+any customer role has been *stated* (even one that was later closed), the ledger stops
+inferring: what the trader said beats what the entries suggest.
+
+**D9. Dates are ISO strings** (`2026-09-07`). They compare correctly as text and read
+clearly in the FalkorDB Browser.
+
+**D10. A graph outage never breaks bookkeeping, or startup.**
+- The driver's constructor makes a blocking connection (it checks for cluster mode), so
+  the client is built lazily, in a worker thread, on first use.
+- Socket and query timeouts are 2 s.
+- Failures become `GraphMemoryError` and are retried on the next call.
+- `/health` reports `"graph": "ok" | "unavailable" | "off"` but still returns 200.
+- Compose starts the app once FalkorDB has *started*, not waiting for it to be *healthy*.
+
+**D11. Default host is `127.0.0.1`, not `localhost`.** On Windows, `localhost` tries IPv6
+first, and Docker publishes the port on IPv4 only, so every connection hung until it timed
+out. Found while testing.
+
+**D12. FalkorDB image pinned by digest.** Cypher and constraint behaviour shouldn't change
+under us on a rebuild. To upgrade: pull, run the tests, update the digest.
+
+**D13. Logs carry ids and counts, never customer names.** Party names are personal data
+about the trader's customers (Nigeria Data Protection Act). An event like
+`graph_sync.done user_id=1 parties=2 ms=23` is enough to debug.
+
+**D14. Every Cypher statement is a named, parameterised constant in `memory/falkor.py`.**
+Nothing is built from strings, the model never writes Cypher, and the full list (below)
+is the reviewable surface that Rule 10 asks submissions to document.
+
+**D15. Rebuild never wipes learned memory unless asked.** `rebuild_graph` resyncs and
+prunes. Only `--wipe` (and never together with `--all`) deletes a trader's graph, because
+aliases and facts can't be recreated from Postgres.
+
+### 9.5 Error handling
+
+| Where | Fails how | What happens |
+|---|---|---|
+| `LedgerEventBus.publish` | No running event loop | Logged (`ledger_event.no_loop`), skipped. Never raises: the ledger has already committed |
+| `LedgerEventBus._run` | A handler raises anything | Logged with traceback (`ledger_event.handler_failed`); other handlers still run |
+| `FalkorGraphMemory._client` | FalkorDB unreachable at first use | `graph.connect_failed`, raises `GraphMemoryError`; the next call tries again |
+| `FalkorGraphMemory._run` | Redis/socket error, timeout | `graph.query_failed` (op, graph, error type), raises `GraphMemoryError` |
+| `FalkorGraphMemory._ensure_schema` | Index/constraint already exists | Ignored (idempotent); any other error becomes `GraphMemoryError` |
+| `GraphSync.on_ledger_changed` | `GraphMemoryError` | `graph_sync.failed` warning; the graph is behind until the next change or a rebuild |
+| `main.lifespan` | FalkorDB down at startup | `graph_memory.unreachable_at_startup` error; the app starts anyway |
+| `scripts/rebuild_graph.py` | One trader fails | Logged, reported, exit code 1; other traders continue. Safe to re-run |
+
+### 9.6 Log events
+
+Structured JSON via structlog (`utils.logger`).
+
+| Event | Level | Meaning |
+|---|---|---|
+| `graph_memory.falkordb` / `graph_memory.off` | info | Adapter chosen at startup |
+| `graph_memory.ready` / `graph_memory.unreachable_at_startup` | info / error | Startup ping result |
+| `graph.connected` / `graph.connect_failed` | info / warning | Driver built, or not |
+| `graph.schema_ready` | info | Indexes and constraints in place for a trader's graph |
+| `graph.synced` | info | Parties, debts and stale removals for one sync |
+| `graph_sync.done` / `graph_sync.failed` | info / warning | One ledger change mirrored (with ms), or not |
+| `graph_sync.rebuilt`, `graph.pruned`, `graph.deleted` | info | Rebuild and maintenance |
+| `graph.query` | debug | Every query, with op name and ms |
+| `graph.query_failed` | warning | Failed query: op, graph, error type |
+| `ledger_event.handler_failed` | error | A listener crashed (with traceback) |
+
+### 9.7 The Cypher the product runs
+
+All in `memory/falkor.py`:
+
+| Constant | Does |
+|---|---|
+| `MERGE_TRADER` | The trader's own node, once per graph |
+| `UPSERT_PARTY` | Create or rename a party |
+| `UPSERT_DEBTS` | Create or update debts by Postgres id; move them if the party changed |
+| `STATED_CUSTOMER_ROLES` | Has the trader ever stated this party's customer role? |
+| `SET_INFERRED_CUSTOMER` / `DROP_INFERRED_CUSTOMER` | Customer role from the ledger |
+| `REMOVE_STALE_DEBTS` | Drop these parties' debts the ledger no longer has, and their promises |
+| `PRUNE_DEBTS` | Same, for the whole graph (rebuild) |
+
+### 9.8 Running and operating it
+
+- `docker compose up` starts FalkorDB with the app. FalkorDB Browser:
+  http://localhost:3000 (connect to host `localhost`, port `6379`). Each trader's graph is
+  `trader_<user_id>`.
+- Settings: `GRAPH_MEMORY` (`falkordb` / `off`), `FALKORDB_HOST`, `FALKORDB_PORT`,
+  `FALKORDB_PASSWORD`, `FALKORDB_TIMEOUT_SECONDS`, `FALKORDB_BROWSER`.
+- After an outage, or to backfill existing traders:
+  `uv run python -m scripts.rebuild_graph --all` (or `--user 12`).
+- Health: `GET /health` → `{"status": "ok", "graph": "ok"}`.

@@ -131,4 +131,5 @@ async def test_idempotent_retry_does_not_record_twice(new_browser, fake_llm, db_
 
 async def test_health_check(new_browser):
     response = await (await new_browser()).get("/health")
-    assert response.status_code == 200 and response.json() == {"status": "ok"}
+    # graph memory is the null adapter in tests (the lifespan never runs)
+    assert response.status_code == 200 and response.json() == {"status": "ok", "graph": "off"}
