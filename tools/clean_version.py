@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from datetime import date as date_type, datetime, timezone
 from typing import Callable, Optional, Literal
 
@@ -17,6 +18,10 @@ from tools.ledger import (
     LedgerError, TransactionInput, correct_transaction, delete_transactions, persist_transactions,
 )
 from tools.recievables import get_recievables as get_receivables, get_payables
+from memory import get_graph_memory
+from memory.collector import Collector
+from memory.explain import explain, resolve_party
+from memory.models import GraphMemoryError
 
 
 class TransactionQuery(BaseModel):
@@ -71,7 +76,8 @@ def _describe_for_user(r: TransactionORM) -> str:
 # ── factory: builds tools bound to a specific db session and user ──
 def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = None,
                 request_started_at: datetime | None = None, touched: list | None = None,
-                could_be: Callable[[str], list[str]] | None = None, last_reply: str = ""):
+                could_be: Callable[[str], list[str]] | None = None, last_reply: str = "",
+                memory_notes: list | None = None):
     """`clarifications`, if given, collects amount prompts raised during this request so the
     endpoint can hand them to the client as structured data, not just reply text.
     `request_started_at` stops a reminder drafted in this request from also being sent in it.
@@ -81,13 +87,22 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
     people a new name might really be. Recording under such a name is refused until the user
     has said who they mean, so one customer's debts don't split across two names.
     `last_reply` is the assistant's previous message: a name only counts as confirmed new
-    if that message asked about it (the model can't wave its own guess through)."""
+    if that message asked about it (the model can't wave its own guess through).
+    `memory_notes`, if given, collects what tools want remembered (a confirmed bank name, a
+    sent reminder); the curator writes them once the message is saved."""
     started = request_started_at or datetime.now(timezone.utc)
     # people a refused name might be: blocked for the rest of this request, so the agent
     # asks the user instead of picking one of them itself
     unresolved: dict[str, str] = {}
     refused: set[str] = set()
     asked = " ".join(last_reply.lower().split())
+
+    @asynccontextmanager
+    async def this_session():
+        yield db  # the request's session; tools run one at a time
+
+    def collector() -> Collector:
+        return Collector(get_graph_memory(), this_session)
 
     @tool
     async def extract_transactions_tool(transactions: list[TransactionInput],
@@ -206,8 +221,19 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
             return {"error": str(e)}
 
     @tool
-    async def remind_debtor_tool(party: str) -> dict:
-        """Draft a payment reminder to someone who owes the user ("remind Mama Chidi"). Only drafts; returns the message to show."""
+    async def remind_debtor_tool(party: str, trader_confirmed: bool = False) -> dict:
+        """Draft a payment reminder to someone who owes the user ("remind Mama Chidi"). Only drafts; returns the message to show. trader_confirmed: only after the user, asked about a do-not-remind, clearly said to go ahead."""
+        key = " ".join(party.lower().split())
+        try:
+            found = await resolve_party(get_graph_memory(), user_id, party)
+            key = found[0] if found else key
+        except GraphMemoryError:
+            pass
+        reason = await collector().do_not_remind(user_id, key)
+        if reason and not (trader_confirmed and key in asked and "remind" in asked):
+            return {"needs_confirmation": f"Not drafted: {reason}. Ask the user if they still want to remind "
+                                          f"{party}. Only if they clearly say yes, call again with "
+                                          "trader_confirmed=true."}
         user = await db.get(User, user_id)
         try:
             return await debt_collection.draft_reminder(db, user, party)
@@ -219,9 +245,23 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
         """Send a reminder draft — only after the user saw it and said yes in a later message."""
         user = await db.get(User, user_id)
         try:
-            return await debt_collection.confirm_reminder(db, user, reminder_id, not_before=started)
+            result = await debt_collection.confirm_reminder(db, user, reminder_id, not_before=started)
         except debt_collection.ReminderRefused as e:
             return {"error": str(e)}
+        if memory_notes is not None:
+            memory_notes.append({"kind": "reminder_sent", "reminder_id": result["reminder_id"],
+                                 "party": result["party"]})
+        return result
+
+    @tool
+    async def who_to_chase_tool() -> dict:
+        """Who to chase for payment first, with the reasons ("who I suppose chase?", "who never pay me?"). Also says who was skipped and why."""
+        return await collector().who_to_chase(user_id)
+
+    @tool
+    async def explain_tool(person: str) -> dict:
+        """Why the assistant thinks or did something about a person: their promises and outcomes, what's remembered about them and from which of the user's messages ("why Emeka first?", "wetin you know about Bola?")."""
+        return await explain(get_graph_memory(), this_session, user_id, person)
 
     @tool
     async def customer_statement_tool(
@@ -266,9 +306,12 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
     ) -> dict:
         """Record the user's answer about a bank alert. record_as: sale (item, party), debt_repayment (party), expense (item), loan_taken/loan_given (party), already_recorded (transaction_id), ignore (personal)."""
         try:
-            return await alerts.resolve_alert(db, user_id, alert_id, record_as, party, item, transaction_id)
+            result = await alerts.resolve_alert(db, user_id, alert_id, record_as, party, item, transaction_id)
         except alerts.AlertError as e:
             return {"error": str(e)}
+        if memory_notes is not None and result.get("bank_name") and party:
+            memory_notes.append({"kind": "bank_alias", "alias": result["bank_name"], "party": party})
+        return result
 
     return [
         extract_transactions_tool, generate_report_tool, query_transactions_tool,
@@ -276,4 +319,5 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
         save_contact_tool, remind_debtor_tool, confirm_reminder_tool,
         customer_statement_tool, stop_sharing_statement_tool,
         review_bank_alert_tool, resolve_bank_alert_tool,
+        who_to_chase_tool, explain_tool,
     ]

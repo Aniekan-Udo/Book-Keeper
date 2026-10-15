@@ -178,7 +178,8 @@ async def confirm_reminder(db: AsyncSession, user: User, reminder_id: int, not_b
     reminder.sent_at = now
     reminder.wa_message_id = wa_id
     await db.commit()
-    return {"sent": True, "to": f"{party} ({display_phone(phone)})", "amount": format_naira(amount)}
+    return {"sent": True, "to": f"{party} ({display_phone(phone)})", "amount": format_naira(amount),
+            "reminder_id": reminder_id, "party": party}
 
 
 async def pending_drafts(db: AsyncSession, user_id: int) -> list[str]:

@@ -27,7 +27,10 @@ from config import LooseDate, business_today
 from db import BankAlert, PartyAlias, TransactionORM
 from tools.contacts import name_key
 from tools.formatting import format_naira
+from memory import get_graph_memory
+from memory.models import GraphMemoryError
 from tools.ledger import SETTLEABLE_BY_DIRECTION, TransactionInput, persist_transactions, to_money
+from utils import logger
 
 DUPLICATE_WINDOW = timedelta(days=1)
 SUPPORTED_IMAGES = {"image/jpeg", "image/png", "image/webp"}
@@ -131,10 +134,29 @@ async def _open_balances_by_party(db: AsyncSession, user_id: int, direction: str
     return grouped
 
 
+async def _graph_bank_name(user_id: int, bank_name: str) -> str | None:
+    """The party a bank name was confirmed as, from graph memory, or None (or graph off)."""
+    memory = get_graph_memory()
+    if not memory.enabled:
+        return None
+    key = " ".join(bank_name.lower().split())
+    try:
+        names = await memory.known_names(user_id)
+    except GraphMemoryError as e:
+        logger.warning("alerts.graph_lookup_failed", user_id=user_id, error=str(e))
+        return None
+    return next((n.party_name for n in names if n.is_alias and n.key == key), None)
+
+
 async def matching_debtors(db: AsyncSession, user_id: int, alert: BankAlert) -> dict[str, tuple[str, Decimal]]:
-    """Open balances whose party this alert's sender/recipient could be."""
+    """Open balances whose party this alert's sender/recipient could be. A bank name the
+    trader confirmed before (graph memory first, then the PartyAlias table, which keeps
+    working with graph memory off) is a single, certain match."""
     open_parties = await _open_balances_by_party(db, user_id, alert.direction)
     if alert.counterparty:
+        party = await _graph_bank_name(user_id, alert.counterparty)
+        if party and name_key(party) in open_parties:
+            return {name_key(party): open_parties[name_key(party)]}
         alias = (await db.execute(
             select(PartyAlias.party)
             .where(PartyAlias.user_id == user_id, PartyAlias.alias_key == name_key(alert.counterparty))
@@ -323,7 +345,10 @@ async def resolve_alert(db: AsyncSession, user_id: int, alert_id: int, record_as
     entry = TransactionInput(type=record_as, direction=direction, party=party, item=item, amount=float(amount),
                              date=occurred_on, note=f"bank alert: {narration}" if narration else "bank alert")
     result = await _record(db, user_id, alert_id, entry)
-    return {"status": "recorded", "alert": summary, "recorded": result["logged"][0], "notes": result["notes"]}
+    out = {"status": "recorded", "alert": summary, "recorded": result["logged"][0], "notes": result["notes"]}
+    if party and bank_name:
+        out["bank_name"] = bank_name  # for graph memory: this bank name is this party
+    return out
 
 
 async def pending_alerts(db: AsyncSession, user_id: int, limit: int = 3) -> list[str]:

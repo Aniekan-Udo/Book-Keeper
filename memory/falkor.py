@@ -16,7 +16,8 @@ from redis.exceptions import RedisError, ResponseError
 
 from config import business_today
 from memory.models import (
-    FactView, GraphMemoryError, KnownName, PartyMemory, PartySnapshot, PromiseView, Source,
+    Explanation, FactView, GraphMemoryError, KnownName, OverduePromise, PartyMemory, PartySnapshot, PromiseView,
+    Source,
 )
 from utils import logger
 
@@ -29,6 +30,7 @@ _INDEXES = (
     ("Promise", "id", True),
     ("Message", "turn_id", True),
     ("Agent", "name", True),
+    ("Reminder", "pg_id", True),
 )
 
 MERGE_TRADER = "MERGE (:Trader {id: $user_id})"
@@ -91,7 +93,7 @@ RETURN count(x)
 MARK_KEPT = """
 MATCH (pr:Promise {status: 'open'})-[:FOR]->(d:Debt {open: false})-[:WITH]->(p:Party)
 WHERE p.key IN $keys AND d.settled_on IS NOT NULL AND pr.due >= d.settled_on
-SET pr.status = 'kept', pr.paid_fraction = 1.0, pr.closed_on = d.settled_on
+SET pr.status = 'kept', pr.paid_fraction = 1.0, pr.closed_on = d.settled_on, pr.closed_by = 'ledger_sync'
 RETURN count(pr)
 """
 
@@ -187,7 +189,68 @@ CREATE (x)-[:FOR]->(d), (x)-[:MADE_BY]->(p)
 
 SET_PROMISE_STATUS = """
 MATCH (pr:Promise {id: $id})
-SET pr.status = $status, pr.paid_fraction = $paid_fraction, pr.closed_on = $on
+SET pr.status = $status, pr.paid_fraction = $paid_fraction, pr.closed_on = $on, pr.closed_by = $by
+"""
+
+OVERDUE_PROMISES = """
+MATCH (pr:Promise {status: 'open'})-[:FOR]->(d:Debt)
+WHERE pr.due < $today
+RETURN pr.id, d.pg_id, pr.due, d.open, d.settled_on
+"""
+
+# ── reminders (Collector) ────────────────────────────────────────────────────
+RECORD_REMINDER = """
+MATCH (p:Party {key: $party_key})
+MERGE (x:Reminder {pg_id: $pg_id})
+ON CREATE SET x.sent_at = $at
+MERGE (x)-[:SENT_TO]->(p)
+""" + _SOURCE
+
+# why it was sent: the promises still open or already broken when it went
+LINK_REMINDER_REASONS = """
+MATCH (x:Reminder {pg_id: $pg_id})-[:SENT_TO]->(p:Party)
+MATCH (pr:Promise)-[:MADE_BY]->(p)
+WHERE pr.status IN ['open', 'broken']
+MERGE (x)-[:BECAUSE]->(pr)
+RETURN count(pr)
+"""
+
+# ── explaining (the "why?" tool) ─────────────────────────────────────────────
+# Simple chains of OPTIONAL MATCH without aggregation in between (see RECALL's note).
+EXPLAIN_PROMISES = """
+MATCH (pr:Promise)-[:MADE_BY]->(:Party {key: $key})
+OPTIONAL MATCH (pr)-[:LEARNED_FROM]->(m:Message)
+OPTIONAL MATCH (pr)-[:WRITTEN_BY]->(a:Agent)
+OPTIONAL MATCH (pr)-[:FOR]->(d:Debt)
+RETURN pr.due, pr.status, pr.paid_fraction, pr.made_on, pr.closed_on, pr.closed_by, m.turn_id, a.name, d.pg_id
+ORDER BY pr.due
+"""
+
+EXPLAIN_FACTS = """
+MATCH (f:Fact)-[:ABOUT]->(:Party {key: $key})
+OPTIONAL MATCH (f)-[:LEARNED_FROM]->(m:Message)
+OPTIONAL MATCH (f)-[:WRITTEN_BY]->(a:Agent)
+RETURN f.kind, f.summary, f.said, f.confidence, f.valid_from, f.valid_to, f.until, f.data, m.turn_id, a.name
+ORDER BY f.valid_from
+"""
+
+EXPLAIN_ALIASES = """
+MATCH (al:Alias)-[r:REFERS_TO]->(:Party {key: $key})
+OPTIONAL MATCH (al)-[:LEARNED_FROM]->(m:Message)
+OPTIONAL MATCH (al)-[:WRITTEN_BY]->(a:Agent)
+RETURN al.text, al.kind, r.valid_from, r.valid_to, m.turn_id, a.name
+"""
+
+EXPLAIN_ROLES = """
+MATCH (:Party {key: $key})-[r]->(:Trader)
+RETURN type(r), r.confidence, r.valid_from, r.valid_to, r.turn_id, r.written_by
+"""
+
+EXPLAIN_REMINDERS = """
+MATCH (x:Reminder)-[:SENT_TO]->(:Party {key: $key})
+OPTIONAL MATCH (x)-[:BECAUSE]->(pr:Promise)
+RETURN x.pg_id, x.sent_at, collect([pr.due, pr.status])
+ORDER BY x.sent_at
 """
 
 CLOSE_FACT = """
@@ -462,11 +525,49 @@ class FalkorGraphMemory:
         return promise_id
 
     async def set_promise_status(self, user_id: int, promise_id: str, status: str,
-                                 paid_fraction: float | None, on: date) -> None:
+                                 paid_fraction: float | None, on: date, by: str | None = None) -> None:
         graph = await self._graph(user_id)
         await self._run(graph, SET_PROMISE_STATUS, {"id": promise_id, "status": status,
-                                                    "paid_fraction": paid_fraction, "on": _iso(on)},
+                                                    "paid_fraction": paid_fraction, "on": _iso(on), "by": by},
                         "set_promise_status")
+
+    async def overdue_promises(self, user_id: int, today: date) -> list[OverduePromise]:
+        graph = await self._graph(user_id)
+        result = await self._run(graph, OVERDUE_PROMISES, {"today": _iso(today)}, "overdue_promises")
+        return [OverduePromise(promise_id=i, pg_id=pg, due=due, debt_open=bool(is_open), settled_on=settled)
+                for i, pg, due, is_open, settled in result.result_set]
+
+    async def record_reminder(self, user_id: int, pg_id: int, party_key: str, source: Source) -> int:
+        graph = await self._graph(user_id)
+        await self._run(graph, RECORD_REMINDER, {"pg_id": int(pg_id), "party_key": party_key,
+                                                 **self._source(source)}, "record_reminder")
+        linked = await self._run(graph, LINK_REMINDER_REASONS, {"pg_id": int(pg_id)}, "link_reminder_reasons")
+        return linked.result_set[0][0] if linked.result_set else 0
+
+    async def explain(self, user_id: int, party_key: str) -> Explanation:
+        graph = await self._graph(user_id)
+        p = {"key": party_key}
+        promises = await self._run(graph, EXPLAIN_PROMISES, p, "explain_promises")
+        facts = await self._run(graph, EXPLAIN_FACTS, p, "explain_facts")
+        aliases = await self._run(graph, EXPLAIN_ALIASES, p, "explain_aliases")
+        roles = await self._run(graph, EXPLAIN_ROLES, p, "explain_roles")
+        reminders = await self._run(graph, EXPLAIN_REMINDERS, p, "explain_reminders")
+        role_names = {"CUSTOMER_OF": "customer", "SUPPLIER_OF": "supplier"}
+        return Explanation(
+            party_key=party_key,
+            promises=[dict(due=due, status=st, paid_fraction=pf, made_on=made, closed_on=closed, closed_by=cb,
+                           turn_id=t, by=a, entry_id=pg)
+                      for due, st, pf, made, closed, cb, t, a, pg in promises.result_set],
+            facts=[dict(kind=k, summary=sm, said=sd, confidence=c, since=vf, ended=vt, until=u, data=d, turn_id=t,
+                        by=a)
+                   for k, sm, sd, c, vf, vt, u, d, t, a in facts.result_set],
+            aliases=[dict(text=tx, kind=k, since=vf, ended=vt, turn_id=t, by=a)
+                     for tx, k, vf, vt, t, a in aliases.result_set],
+            roles=[dict(role=role_names.get(r, r), confidence=c, since=vf, ended=vt, turn_id=t, by=w)
+                   for r, c, vf, vt, t, w in roles.result_set],
+            reminders=[dict(entry_id=pg, sent_at=at, because=[{"due": d, "status": st} for d, st in why if d])
+                       for pg, at, why in reminders.result_set],
+        )
 
     async def set_fact(self, user_id: int, party_key: str, kind: str, summary: str, source: Source,
                        confidence: str, said: str | None = None, data: str | None = None,

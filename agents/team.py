@@ -47,11 +47,11 @@ AGENT_TOOLS: dict[str, frozenset[str]] = {
     "recorder": frozenset({
         "extract_transactions_tool", "query_transactions_tool", "generate_report_tool",
         "undo_transaction_tool", "correct_transaction_tool", "save_contact_tool",
-        "customer_statement_tool", "stop_sharing_statement_tool",
+        "customer_statement_tool", "stop_sharing_statement_tool", "explain_tool",
     }),
     "collector": frozenset({
-        "remind_debtor_tool", "confirm_reminder_tool", "save_contact_tool",
-        "generate_report_tool", "query_transactions_tool",
+        "remind_debtor_tool", "confirm_reminder_tool", "save_contact_tool", "who_to_chase_tool",
+        "explain_tool", "generate_report_tool", "query_transactions_tool",
     }),
     "alert_matcher": frozenset({
         "review_bank_alert_tool", "resolve_bank_alert_tool", "query_transactions_tool",

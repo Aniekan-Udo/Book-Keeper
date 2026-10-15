@@ -81,13 +81,15 @@ async def respond(db: AsyncSession, user_id: int, text: str, channel: str) -> As
 
         clarifications: list[dict] = []
         touched: list[dict] = []
+        notes: list[dict] = []
         tracer = message_tracer(user_id, channel)
         ctx = TurnContext(
             text=text, channel=channel, history=history, user_id=user_id,
             tools=build_tools(db, user_id, clarifications, request_started_at=started, touched=touched,
                               could_be=recalled.could_be,
                               last_reply=next((h["content"] for h in reversed(history) if h["role"] == "assistant"),
-                                              "")),
+                                              ""),
+                              memory_notes=notes),
             pending_amounts=await pending_amounts(db, user_id),
             reminder_drafts=await pending_drafts(db, user_id),
             pending_alerts=await pending_alerts(db, user_id),
@@ -111,7 +113,7 @@ async def respond(db: AsyncSession, user_id: int, text: str, channel: str) -> As
 
         get_curator().schedule(Turn(
             user_id=user_id, turn_id=turn_id, message=text, reply=reply, channel=channel,
-            history=history, touched=touched, recalled=recalled,
+            history=history, touched=touched, recalled=recalled, notes=notes,
         ))
         logger.debug("assistant.turn", user_id=user_id, agents=team.trail, route=team.route_reason,
                      touched=len(touched), remembered=len(recalled.people))

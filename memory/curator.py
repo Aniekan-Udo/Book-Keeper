@@ -7,6 +7,10 @@ Two kinds of work, deliberately separated:
      the same debt becomes `replaced` (not yet due) or `broken` (already overdue)
    - inferred usual orders: the same items and quantities three sales in a row
 
+   - notes the other agents' tools left for this turn: a bank name the trader confirmed
+     (Alert matcher) and a reminder that was sent (Collector). Written here, after the
+     message is saved, so they carry LEARNED_FROM the message and WRITTEN_BY that agent.
+
 2. Proposed by the model, checked by code, written by fixed Cypher:
    aliases, stated usual orders, do-not-remind, and roles. The model returns operations
    (`MemoryOp`), never Cypher. Each one is validated: the person must exist, an alias must
@@ -74,7 +78,8 @@ Operations:
 - set_do_not_remind: don't remind or chase someone ("no remind Pastor John"). until = end date if given.
 - lift_do_not_remind: only when the trader clearly says reminding them is now fine ("you fit remind Pastor John now"). Asking for a reminder ("remind Pastor John") is NOT permission: the assistant checks with them first.
 - set_role: a role started or ended. "Musa dey supply my oil now" → supplier, active true. "E no dey buy from me again" → customer, active false.
-Use names exactly as listed under People. said = the trader's own short words."""
+Use names exactly as listed under People. said = the trader's own short words.
+Always answer with an object: {"ops": [...]}. Nothing to remember → {"ops": []}."""
 
 
 # ── what one conversation turn hands the curator ────────────────────────────
@@ -89,6 +94,9 @@ class Turn:
     history: list[dict] = field(default_factory=list)   # earlier turns, oldest first
     touched: list[dict] = field(default_factory=list)   # ledger entries written this turn (ledger.describe)
     recalled: Recalled = field(default_factory=Recalled)
+    # left by tools during the turn: {"kind": "bank_alias", "alias", "party"} (Alert matcher)
+    # or {"kind": "reminder_sent", "reminder_id", "party"} (Collector)
+    notes: list[dict] = field(default_factory=list)
     today: date = field(default_factory=business_today)
     at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -97,6 +105,7 @@ class Turn:
 class Outcome:
     promises: int = 0
     inferred: int = 0
+    notes: list[str] = field(default_factory=list)   # notes written, by kind
     applied: list[str] = field(default_factory=list)
     rejected: list[tuple[str, str]] = field(default_factory=list)   # (op, reason)
     unchanged: list[str] = field(default_factory=list)              # proposed, but already known
@@ -112,6 +121,14 @@ def _structured(model: BaseChatModel):
         return model.with_structured_output(CuratorOutput, method="json_schema")
     except (TypeError, ValueError, NotImplementedError):
         return model.with_structured_output(CuratorOutput)
+
+
+def _empty_answer_rejected(e: Exception) -> bool:
+    """Groq's JSON check refusing an empty answer: smaller models sometimes reply [] or {}
+    for "nothing to remember", which isn't the schema's shape."""
+    text = str(e)
+    return "json_validate_failed" in text and any(f"'failed_generation': '{empty}'" in text
+                                                   for empty in ("[]", "{}", ""))
 
 
 def name_key(name: str) -> str:
@@ -187,6 +204,7 @@ class Curator:
         try:
             outcome.promises = await self._promises_from_due_dates(turn, source)
             outcome.inferred = await self._infer_usual_orders(turn)
+            outcome.notes = await self._apply_notes(turn)
         except GraphMemoryError as e:
             logger.warning("curator.graph_failed", user_id=turn.user_id, step="ledger_derived", error=str(e))
             outcome.graph_failed = True
@@ -207,7 +225,7 @@ class Curator:
                     outcome.applied.append(op.op)
 
         logger.info("curator.done", user_id=turn.user_id, turn_id=turn.turn_id, promises=outcome.promises,
-                    inferred=outcome.inferred, asked_model=outcome.asked_model, applied=outcome.applied,
+                    inferred=outcome.inferred, notes=outcome.notes, asked_model=outcome.asked_model, applied=outcome.applied,
                     unchanged=outcome.unchanged, rejected=outcome.rejected, ms=round((time.perf_counter() - started) * 1000, 1))
         return outcome
 
@@ -243,6 +261,33 @@ class Curator:
                 .where(TransactionORM.user_id == user_id, TransactionORM.is_deleted.is_(False),
                        func.lower(func.trim(TransactionORM.party)) == key)
             )).scalar_one()
+
+    async def _apply_notes(self, turn: Turn) -> list[str]:
+        """What the other agents' tools asked to remember, with this turn as the source."""
+        written = []
+        for note in turn.notes:
+            target = await self._resolve(turn.user_id, note.get("party") or "")
+            if target is None:
+                logger.warning("curator.note_unknown_party", user_id=turn.user_id, kind=note.get("kind"))
+                continue
+            if note.get("kind") == "bank_alias":
+                source = Source(agent="alert_matcher", at=turn.at, turn_id=turn.turn_id)
+                alias_key = name_key(note.get("alias") or "")
+                if not alias_key or alias_key == target.party_key:
+                    continue
+                existing = await self._resolve(turn.user_id, note["alias"])
+                if existing is not None:
+                    if existing.party_key != target.party_key:
+                        logger.warning("curator.bank_name_taken", user_id=turn.user_id)
+                    continue
+                await self._memory.add_alias(turn.user_id, alias_key, note["alias"].strip(), target.party_key,
+                                             "bank_name", source)
+                written.append("bank_alias")
+            elif note.get("kind") == "reminder_sent":
+                source = Source(agent="collector", at=turn.at, turn_id=turn.turn_id)
+                await self._memory.record_reminder(turn.user_id, note["reminder_id"], target.party_key, source)
+                written.append("reminder_sent")
+        return written
 
     async def _paid_fraction(self, pg_id: int) -> float | None:
         async with self._session_factory() as db:
@@ -316,6 +361,10 @@ class Curator:
             model = _structured(self._model_factory())
             result = await model.ainvoke([SystemMessage(INSTRUCTIONS), HumanMessage(context)], config=config)
         except Exception as e:
+            if _empty_answer_rejected(e):
+                # the model meant "nothing to remember" but wrote [] instead of {"ops": []}
+                logger.debug("curator.nothing_to_remember", user_id=turn.user_id)
+                return []
             logger.warning("curator.model_failed", user_id=turn.user_id, error=type(e).__name__,
                            problem=provider_problem(e), detail=str(e)[:300])
             return []

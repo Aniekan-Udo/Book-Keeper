@@ -89,3 +89,28 @@ class PartyMemory:
     @property
     def broken(self) -> int:
         return sum(p.status == "broken" for p in self.promises)
+
+
+@dataclass(frozen=True)
+class OverduePromise:
+    promise_id: str
+    pg_id: int
+    due: str
+    debt_open: bool
+    settled_on: str | None
+
+
+@dataclass
+class Explanation:
+    """Everything the graph remembers about one party, each item with its provenance:
+    `turn_id` (the trader's message, a conversation_turns id) and `by` (the agent)."""
+    party_key: str
+    promises: list[dict] = field(default_factory=list)
+    facts: list[dict] = field(default_factory=list)
+    aliases: list[dict] = field(default_factory=list)
+    roles: list[dict] = field(default_factory=list)
+    reminders: list[dict] = field(default_factory=list)
+
+    def turn_ids(self) -> set[int]:
+        return {i["turn_id"] for group in (self.promises, self.facts, self.aliases, self.roles)
+                for i in group if i.get("turn_id") is not None}

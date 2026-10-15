@@ -446,6 +446,7 @@ fact traceable to the message it came from.
 |---|---|
 | 1 (Oct 15) | FalkorDB in compose; the GraphMemory port and FalkorDB adapter; ledger → graph sync; `rebuild_graph` |
 | 2 (Oct 15) | Three agents (Recorder, Collector, Alert matcher) on a LangGraph StateGraph with plain-code routing; recall (memory in every prompt); the Memory curator; promises, aliases, usual orders, do-not-remind, stated roles; two code-enforced guards found in live runs |
+| 3 (Oct 15) | Collector: overdue promises settled (broken/kept), "who to chase" ranked by code with reasons, do-not-remind enforced in the reminder tool, sent reminders in the graph with BECAUSE links; Alert matcher learns and uses bank names; the "why?" tool. Graphiti stretch goal not taken: the time went into live-run fixes |
 
 ### 9.1 Architecture
 
@@ -490,6 +491,21 @@ graph: the curator writes "don't remind Pastor John" after a Recorder or Collect
 and the Collector reads it on the next one. Every memory carries `WRITTEN_BY` (which agent)
 and `LEARNED_FROM` (which message).
 
+Agents' tools don't write memory directly: they leave **notes** for the turn (a bank name
+the trader confirmed, a reminder that was sent), and the curator writes them once the
+message is saved, so they too carry `LEARNED_FROM` the message, with the Alert matcher or
+Collector as `WRITTEN_BY`.
+
+Coordination in the graph, concretely:
+
+| Written by | Read by | Example |
+|---|---|---|
+| Curator: promise (from a due date) | Sync marks it kept; Collector marks it broken; Collector ranks on it | Emeka first: "broken 3 of 4" |
+| Curator: alias | Recall (every agent), the record tool's name check | "Chidi's mum pay 30k" → Mama Chidi, no question |
+| Alert matcher (note): bank name | Alert matcher, next alert | `NWOSU EMEKA CHUKWUDI` → Emeka, no question |
+| Curator: do-not-remind | Collector: ranking (skipped, with reason) and the reminder tool (refuses) | Pastor John skipped |
+| Collector: promise broken, reminder sent | "Why?" tool, next ranking | "Why Emeka first?" |
+
 ### 9.2 Design patterns, and why each one is there
 
 | Pattern | Where | Why |
@@ -505,6 +521,8 @@ and `LEARNED_FROM` (which message).
 | **Command objects + validator** | `MemoryOp` → `Curator._apply` | The model proposes typed commands; code validates each one (does the person exist? was the alias said?) and runs fixed Cypher. The model never writes to the graph |
 | **Guard in code, not in the prompt** | `could_be` in the record tool; `claims_unbacked_recording` in the team | Two failure modes seen in live runs are refused or retried by code: splitting a customer across two names, and claiming a recording that never happened |
 | **Background worker with one retry** | `Curator.schedule`, `GraphSync.on_ledger_changed` | Off the reply path; a blip in the graph store gets one delayed retry, which is safe because both are idempotent |
+| **Deferred writes (notes)** | `memory_notes` in `build_tools` → `Turn.notes` → `Curator._apply_notes` | Tools run before the message is saved, so they can't know its id; they hand memory writes to the curator, which has it. One place writes memory, with provenance |
+| **Deterministic scoring** | `Collector.who_to_chase` | The ranking is a sort key over facts (broken promises, days overdue, amount, age), so it's reproducible and every position has stated reasons |
 
 Deliberately **not** used:
 - **A message queue** (Redis streams, Celery). The events are in-process tasks. A queue would
@@ -528,8 +546,10 @@ One graph per trader, named `trader_<user_id>`.
                                                                 -[:MADE_BY]-> (:Party)
 (:Fact {id, kind, summary, said, data, until, confidence, valid_from, valid_to}) -[:ABOUT]-> (:Party)
 
-(:Alias|:Promise|:Fact) -[:LEARNED_FROM]-> (:Message {turn_id, at})   // the trader's message
-(:Alias|:Promise|:Fact) -[:WRITTEN_BY]->   (:Agent {name})            // e.g. "curator"
+(:Reminder {pg_id, sent_at}) -[:SENT_TO]-> (:Party), -[:BECAUSE]-> (:Promise)
+
+(:Alias|:Promise|:Fact|:Reminder) -[:LEARNED_FROM]-> (:Message {turn_id, at})   // the trader's message
+(:Alias|:Promise|:Fact|:Reminder) -[:WRITTEN_BY]->   (:Agent {name})            // curator / alert_matcher / collector
 ```
 
 - `Party.key`: the normalised name, the same grouping the ledger uses for debts
@@ -538,16 +558,16 @@ One graph per trader, named `trader_<user_id>`.
   `settled_on`: the date of the repayment that cleared it.
 - `Alias.kind`: `nickname`, `transcription` (a misheard voice note), later `bank_name`.
 - `Promise.status`: `open`, `kept`, `broken`, `replaced` (more time asked *before* the due
-  date; not held against them).
+  date; not held against them). `closed_by`: who decided (`ledger_sync`, `collector`,
+  `curator`); `paid_fraction`: how much of the debt was paid when it was settled.
+- `Reminder.pg_id` is the `reminders` row; `BECAUSE` links the promises still open or
+  already broken when it was sent.
 - `Fact.kind`: `usual_order` (`data` holds the items as JSON) or `do_not_remind` (`until`
   optional). `confidence`: `stated` (the trader said it) or `inferred` (code worked it out).
 - `Message.turn_id` is a `conversation_turns` id: the message text stays in Postgres; the
   graph only points at it.
 - Unique constraints: `Party.key`, `Debt.pg_id`, `Promise.id`, `Message.turn_id`,
-  `Agent.name`. Range index: `Alias.key`.
-
-Still to come (Day 3): `Reminder`, bank-name aliases from the Alert matcher, and the
-Collector marking overdue promises broken. See `docs/hackathon-design.md`.
+  `Agent.name`, `Reminder.pg_id`. Range index: `Alias.key`.
 
 ### 9.4 Decisions and trade-offs
 
@@ -689,6 +709,38 @@ with nothing in the ledger.
   (`CUSTOMER_OF`, `SUPPLIER_OF`), chosen from a dict: still constants, never string-built
   from input.
 
+**D28. "Who to chase" is ranked by code.** Sort key: most broken promises, then longest
+overdue, then most owed, then owed longest. Reasons are generated from the same facts, so
+the answer to "why Emeka first?" matches the ranking exactly. The model only phrases it.
+*Trade-off:* the weighting is fixed and simple (broken promises always outrank amount). A
+trader may care more about a big debt; easy to change, and the reasons make it visible.
+
+**D29. Broken is decided when the due date passes**, by the Collector's sweep, which runs
+before every ranking and daily from cron (`scripts/collector_sweep.py`). Kept is decided
+by the sync when the debt clears (D19); a late payment is broken with `paid_fraction` 1.0.
+
+**D30. Do-not-remind is enforced in the reminder tool**, not only in the prompt and the
+ranking: drafting is refused until the trader confirms, and the confirmation only counts
+if the previous assistant message asked about that person (the same rule as D24).
+
+**D31. Skipped is shown, not hidden.** Someone the trader said not to remind, or who
+replied STOP, appears under "skipped" with the reason in the trader's own words, so the
+trader can see the assistant remembered.
+
+**D32. Bank names are graph aliases (`kind: bank_name`), PartyAlias stays as fallback.**
+The Alert matcher checks the graph first; the old PartyAlias table is still written and
+read, so alerts keep matching with graph memory off.
+
+**D33. The "why?" tool answers from provenance, not the model's memory.** It returns every
+promise with its outcome, who decided it and the trader's message it came from (text
+fetched from Postgres by `turn_id`), plus facts, aliases, roles and reminders with their
+reasons. The model turns that into a sentence.
+
+**D34. An empty answer in the wrong shape is "nothing to remember".** On `gpt-oss-20b`,
+the curator sometimes replied `[]` instead of `{"ops": []}`, which Groq's JSON check
+rejects. The prompt now spells out the shape, and that specific rejection is treated as no
+memories, not an error.
+
 ### 9.5 Error handling
 
 | Where | Fails how | What happens |
@@ -710,6 +762,12 @@ with nothing in the ledger.
 | `extract_transactions_tool` | Ambiguous new name | Returns an error to the agent, which asks the user; nothing is recorded |
 | `agents/team.py` node | Claimed recording, nothing recorded | `team.unbacked_claim`, one re-run; `team.unbacked_claim_again` if it happens twice |
 | `agents/team.py` | Second handoff attempted | `team.handoff_refused`; the second agent's reply is used |
+| `Collector.who_to_chase` | Sweep or recall fails | `collector.sweep_failed` / `collector.recall_failed`; ranks on the ledger alone (overdue, amount) |
+| `Collector.do_not_remind` | Graph unavailable | `collector.check_failed`; returns no restriction (the prompt still carries what recall found, if anything) |
+| `tools/alerts._graph_bank_name` | Graph unavailable | `alerts.graph_lookup_failed`; falls back to the PartyAlias table |
+| `memory/explain.explain` | Graph unavailable / unknown person | `explain.failed` → "can't reach my memory"; unknown → "nothing remembered about X" |
+| `Curator._apply_notes` | Note names a party the graph doesn't have | `curator.note_unknown_party`, skipped |
+| `scripts/collector_sweep.py` | One trader fails | Logged, reported, exit 1; others continue. Safe to re-run |
 
 ### 9.6 Log events
 
@@ -734,6 +792,9 @@ Structured JSON via structlog (`utils.logger`).
 | `team.unbacked_claim` / `team.unbacked_claim_again` | warning / error | Reply claimed a recording that didn't happen |
 | `curator.done` | info | Promises, inferred orders, whether the model was asked, ops applied / unchanged / rejected (with reasons), ms |
 | `curator.model_failed`, `curator.graph_failed`, `curator.retrying`, `curator.crashed` | warning / error | See 9.5 |
+| `collector.swept` | info | Promises settled by a sweep (broken / kept counts) |
+| `collector.ranked` | info | A ranking: debtors, listed, skipped, whether memory was used, ms |
+| `explain.done` | info | A "why?" answer: promises, facts, aliases, quotes found |
 
 ### 9.7 The Cypher the product runs
 
@@ -758,6 +819,9 @@ All in `memory/falkor.py`:
 | `ADD_FACT`, `CLOSE_FACT` | Usual orders and do-not-remind; a new fact closes the old one (`valid_to`) |
 | `DELETE_INFERRED_ROLE`, `COUNT_CURRENT_STATED_ROLE`, `CLOSE_STATED_ROLE`, `CREATE_STATED_ROLE` | Stated roles, one constant per relationship type |
 | `_SOURCE` (fragment) | `WRITTEN_BY` the agent and, if there's a message, `LEARNED_FROM` it |
+| `OVERDUE_PROMISES` | Open promises past their due date, with their debt's state (the sweep) |
+| `RECORD_REMINDER`, `LINK_REMINDER_REASONS` | A sent reminder, SENT_TO the party, BECAUSE its open/broken promises |
+| `EXPLAIN_PROMISES`, `EXPLAIN_FACTS`, `EXPLAIN_ALIASES`, `EXPLAIN_ROLES`, `EXPLAIN_REMINDERS` | Everything about a party, with provenance, for "why?" |
 
 ### 9.8 Running and operating it
 
@@ -769,6 +833,8 @@ All in `memory/falkor.py`:
 - After an outage, or to backfill existing traders:
   `uv run python -m scripts.rebuild_graph --all` (or `--user 12`).
 - Health: `GET /health` → `{"status": "ok", "graph": "ok"}`.
+- Daily: `uv run python -m scripts.collector_sweep` (cron) settles overdue promises for
+  every trader. Also runs on its own whenever a trader asks who to chase.
 
 ### 9.9 What the live runs found
 
@@ -787,6 +853,9 @@ ledger, repeatedly, fixing what broke:
 | 3 | A 30-second stall in the graph connection lost one sync and one promise | One delayed retry for sync and curator (D3, D10) |
 | 4 | "I don add sale: Pastor John" with nothing recorded | Unbacked-claim check (D26) |
 | 5 | The curator learned an alias from the assistant's question, a turn early | Curator rule: only the trader's own words confirm |
+| Day 3 | "Who I suppose chase?" → Emeka first ("promised by Sep 24", "broken 3 of 4"), Mama Chidi next, Pastor John skipped with the trader's words; "why Emeka first?" answered from the graph; "remind Pastor John" stopped by code | (worked as designed) |
+| Day 3 | Groq's free tier: 200,000 tokens/day for `gpt-oss-120b`, used up by the day's live runs | Later checks on `gpt-oss-20b`; see limitations |
+| Day 3 | `gpt-oss-20b` answered `[]` for "nothing to remember", rejected by Groq | D34 |
 
 The final run: every claimed recording reached the ledger; "Chidi's mum" was asked about,
 learned as Mama Chidi's alias, then recognised without asking; Chidi stayed a separate
@@ -804,4 +873,8 @@ drafting.
   ledger structure comes back with a rebuild, learned memory from that turn doesn't.
 - Recall's name matching is word-based: "Mama Nkechi" and "Nkechi's mum" are not linked
   unless the trader links them.
+- Token budget: each message costs one agent run (often 2–3 model calls) plus, when worth
+  it, one curator call. Groq's free tier allows 200,000 tokens a day per model, roughly
+  100–150 messages. `CURATOR_MODEL=groq:openai/gpt-oss-20b` moves the curator onto a
+  separate daily limit; a paid tier removes the ceiling.
 

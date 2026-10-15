@@ -461,3 +461,15 @@ async def test_a_name_with_ledger_entries_is_never_absorbed_as_an_alias(world):
 
     assert outcome.rejected == [("add_alias", "a separate person with their own records")]
     assert sorted(await world.rows("MATCH (p:Party) RETURN p.key")) == [["chidi"], ["mama chidi"]]
+
+
+async def test_an_empty_answer_in_the_wrong_shape_means_nothing_to_remember(world):
+    """Seen live on gpt-oss-20b: Groq rejects a bare [] with json_validate_failed."""
+    class SaysEmptyList(ScriptedModel):
+        async def ainvoke(self, messages, config=None):
+            raise RuntimeError("Error code: 400 - {'error': {'code': 'json_validate_failed', "
+                               "'failed_generation': '[]'}}")
+
+    await world.record(credit_sale("Emeka", 1000))
+    outcome = await world.curator(SaysEmptyList()).curate(await world.turn("Emeka is a good customer"))
+    assert outcome.asked_model and outcome.applied == [] and outcome.rejected == []

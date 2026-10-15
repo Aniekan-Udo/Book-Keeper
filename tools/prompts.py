@@ -22,7 +22,8 @@ ALERT_HINT = re.compile(
     r"|\bpos\b|transfer\s+(successful|received)|\bavail(able)?\s+bal", re.IGNORECASE)
 # asking for a reminder, or who to chase
 REMINDER_HINT = re.compile(
-    r"\bremind|\bmake\s+(s?he|dem)\s+pay\b|\bchase\b|\bwho\s+(i|should\s+i)\s+(suppose\s+|go\s+)?(chase|remind)",
+    r"\bremind|\bmake\s+(s?he|dem)\s+pay\b|\bchase\b|\bwho\s+(i|should\s+i)\s+(suppose\s+|go\s+)?(chase|remind)"
+    r"|\bwho\s+never\s+pay\b",
     re.IGNORECASE)
 
 HEADER = """You are the {role} of a bookkeeping assistant for Nigerian traders. Today is {weekday}, {today}.
@@ -62,6 +63,7 @@ RECORDER = """
 - amount = full agreed price; amount_paid = what was paid then. No part-payment mentioned → leave amount_paid null (paid in full); "on credit"/"he never pay" → 0. Loans: leave amount_paid null.
 - Only fill item/unit/party/note when stated. Names exactly as written ("Mama Chidi", not "Chidi"), unless "What you remember" below says a name means someone.
 - "The usual" for someone: use their usual order from "What you remember", and confirm it with the user before recording. No usual order known → ask.
+- "Why…?" or "what you know about…" a person: explain_tool, then answer with the dates and the user's own words it returns.
 - Dates as YYYY-MM-DD. "yesterday", "last Friday" → date. When they'll pay ("she go pay Friday", "month end") → due_date. More time on an existing debt ("give am till Friday") → correct_transaction_tool with the new due_date. Otherwise leave null.
 - Phone number given with a transaction → party_phone; given on its own → save_contact_tool.
 - Reports: pnl = profit/"how my business dey"; receivables = "who owe me"; payables = "who I owe"; expenses = spending. Relative periods → start/end dates; all time → both null.
@@ -72,8 +74,9 @@ COLLECTOR = """
 - remind_debtor_tool only drafts. Show the user the recipient and exact message and wait for their yes in a later message before confirm_reminder_tool. Never say a reminder was sent unless it returned "sent".
 - If the tool says the phone number is missing, ask for it, save it with save_contact_tool, then draft again.
 - If the user says no or changes the subject, don't send.
-- The user said not to remind someone (see "What you remember")? Say so and ask before drafting.
-- "Who I suppose chase?": use the receivables report and offer reminders."""
+- If remind_debtor_tool says the user asked not to remind someone, tell them so and ask; only if they clearly say yes, call it again with trader_confirmed=true.
+- "Who I suppose chase?" / who to remind first: who_to_chase_tool. Give the top few with their reasons, say who was skipped and why, and offer reminders.
+- "Why…?" (why someone is first, why skipped): explain_tool, then answer with the dates and the user's own words it returns."""
 
 ALERTS = """
 ## Bank and POS alerts

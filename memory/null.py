@@ -3,7 +3,7 @@ Every call succeeds and does nothing (reads return nothing), so callers never ne
 `if memory is not None`."""
 from datetime import date
 
-from memory.models import KnownName, PartyMemory, PartySnapshot, Source
+from memory.models import Explanation, KnownName, OverduePromise, PartyMemory, PartySnapshot, Source
 
 
 class NullGraphMemory:
@@ -47,8 +47,17 @@ class NullGraphMemory:
         return ""
 
     async def set_promise_status(self, user_id: int, promise_id: str, status: str,
-                                 paid_fraction: float | None, on: date) -> None:
+                                 paid_fraction: float | None, on: date, by: str | None = None) -> None:
         return None
+
+    async def overdue_promises(self, user_id: int, today: date) -> list[OverduePromise]:
+        return []
+
+    async def record_reminder(self, user_id: int, pg_id: int, party_key: str, source: Source) -> int:
+        return 0
+
+    async def explain(self, user_id: int, party_key: str) -> Explanation:
+        return Explanation(party_key=party_key)
 
     async def set_fact(self, user_id: int, party_key: str, kind: str, summary: str, source: Source,
                        confidence: str, said: str | None = None, data: str | None = None,

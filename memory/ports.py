@@ -7,7 +7,7 @@ Protocol, never on an adapter, so the store can be swapped or faked in tests.
 from datetime import date
 from typing import Protocol
 
-from memory.models import KnownName, PartyMemory, PartySnapshot, Source
+from memory.models import Explanation, KnownName, OverduePromise, PartyMemory, PartySnapshot, Source
 
 
 class GraphMemory(Protocol):
@@ -75,7 +75,21 @@ class GraphMemory(Protocol):
         ...
 
     async def set_promise_status(self, user_id: int, promise_id: str, status: str,
-                                 paid_fraction: float | None, on: date) -> None:
+                                 paid_fraction: float | None, on: date, by: str | None = None) -> None:
+        """`by`: the agent (or "ledger_sync") that decided the outcome."""
+        ...
+
+    async def overdue_promises(self, user_id: int, today: date) -> list[OverduePromise]:
+        """Open promises whose due date has passed, with the state of their debt."""
+        ...
+
+    async def record_reminder(self, user_id: int, pg_id: int, party_key: str, source: Source) -> int:
+        """A reminder that was sent: SENT_TO the party, BECAUSE of their open and broken
+        promises. Returns how many promises it was linked to."""
+        ...
+
+    async def explain(self, user_id: int, party_key: str) -> Explanation:
+        """Everything remembered about a party, with where each piece came from."""
         ...
 
     async def set_fact(self, user_id: int, party_key: str, kind: str, summary: str, source: Source,
