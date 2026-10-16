@@ -422,6 +422,9 @@ The FalkorDB adapter tests in `test/test_graph_memory.py` run against a real Fal
 - `COOKIE_SECURE=true` (HTTPS).
 - `ALLOWED_ORIGINS` only if the web client is on another origin.
 - A paid LLM quota sized for traffic (the circuit breaker is not a substitute).
+- `ENABLE_API_DOCS=false` and `DEMO_ACCOUNTS=false` (both default off); `COOKIE_SECURE=true`
+  (the app warns at startup if the site is https without it).
+- Rebuild the image regularly for base-image security fixes; re-run the scans in D47.
 - FalkorDB: `FALKORDB_BROWSER=0` (or keep port 3000 bound to 127.0.0.1 only, as compose
   does), a password (`FALKORDB_PASSWORD` plus `--requirepass` on the server), and backups
   of the `falkordb_data` volume — learned memory can't be rebuilt from Postgres.
@@ -835,6 +838,39 @@ table queue handles.
 process that committed is woken at once. Seen live: with FalkorDB stopped, replies kept
 working; the sync job failed twice, backed off, then completed by itself about 9 s after
 FalkorDB came back, and the curation queued behind it ran right after.
+
+**D47. Security baseline, from scanners until paid tools are affordable** (Oct 16). Run and
+fixed:
+- **gitleaks** (whole history): no secrets in tracked files. One historic finding: the
+  July initial commit had a `.env` with test Postgres credentials and a `SECRET_KEY` that
+  nothing uses any more. Low risk; purging history (`git filter-repo` + force-push) is
+  optional.
+- **pip-audit**: 6 CVEs in cryptography, langgraph-sdk, urllib3 → upgraded; now none.
+- **Bandit**: one low-severity false positive (a test password in `tools/evals.py`).
+- **Semgrep** (OWASP Top 10, Python, JS, secrets, Dockerfile, JWT): container ran as root →
+  unprivileged `app` user; one f-string SQL → bound parameter.
+- **Trivy**: base-image CVEs → `apt-get upgrade` at build, unused system pip/setuptools/wheel
+  removed (pip bundles old urllib3/msgpack), `uv` image pinned. What remains has no Debian
+  fix yet and sits in tools the app never runs; rebuilding regularly picks fixes up.
+  Dockerfile configuration scan: clean.
+- **OWASP ZAP** baseline (passive) and active API scan (from the OpenAPI spec, run with a
+  dummy LLM key and demo login off so it couldn't spend tokens): first round 0 failures;
+  warnings fixed (security headers, CSP without `'unsafe-inline'`, self-hosted font
+  instead of Google Fonts, CORP/COEP, `no-store` on personal data). Second round: 0
+  failures, only informational notes. The active scan sent 124 requests to the chat
+  endpoint (all 401) and caused no server errors.
+- **Manual review**: per-user scoping (tested), tokens from `secrets`, constant-time
+  webhook HMAC, Argon2 passwords, hashed session tokens, CSRF origin check, rate limits,
+  escaped statement page, API docs off by default (`ENABLE_API_DOCS`).
+*Known gaps* (for paid tools / later): sign-up is open and was automated by ZAP (rate
+limited to 5/min/IP; CAPTCHA or email verification before a public launch); no WAF; no
+authenticated DAST of the chat (it costs model tokens); prompt-injection testing of the
+agents is manual (money-moving is impossible by design, reminders need a confirmed second
+turn, and tools only reach the user's own books).
+
+To re-run: `uvx pip-audit`, `uvx bandit -r . -x ./.venv,./test`, Semgrep and Trivy via their
+Docker images, and ZAP via `ghcr.io/zaproxy/zaproxy:stable` (`zap-baseline.py`,
+`zap-api-scan.py` against `/openapi.json` with `ENABLE_API_DOCS=true`).
 
 ### 9.5 Error handling
 

@@ -1,4 +1,15 @@
 /* Shared design tokens and components for the landing page and the app. */
+
+/* Inter (SIL Open Font License 1.1, see fonts/Inter-LICENSE.txt), served from here: no
+   third-party requests, nothing for a strict Content-Security-Policy to allow. */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('/static/assets/fonts/inter-latin.woff2') format('woff2');
+}
+.icon-defs { position: absolute; }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 [hidden] { display: none !important; }
 

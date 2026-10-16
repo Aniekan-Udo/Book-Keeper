@@ -5,15 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Book-Keeper: your shop's books, kept by chatting</title>
   <meta name="description" content="Record sales, expenses and debts by chatting in English or Pidgin, on WhatsApp or the web. See what you made this week and this month, what you spent, who owes you for what and when, and who you owe." />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/assets/base.css" />
   <link rel="stylesheet" href="/static/assets/landing.css" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23146349'/%3E%3Cpath d='M9 8h10a4 4 0 0 1 4 4v12H13a4 4 0 0 1-4-4z' fill='none' stroke='white' stroke-width='2.2'/%3E%3Cpath d='M13 13h6M13 17h4' stroke='%23e8a325' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E" />
 </head>
 <body>
 
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<svg class="icon-defs" width="0" height="0" aria-hidden="true">
   <symbol id="i-logo" viewBox="0 0 24 24"><path d="M5 4h10a4 4 0 0 1 4 4v12H9a4 4 0 0 1-4-4z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6M9 13h4" stroke="#e8a325" stroke-width="2" stroke-linecap="round"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.4 8.4 8 9 4.6-.6 8-4 8-9V6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="m9 12 2 2 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
@@ -167,8 +165,8 @@
           <p>Ask "why Emeka first?" and it shows each promise, its outcome, and the message you sent it in.</p></div>
       </div>
 
-      <div class="section-head" style="margin-top:64px">
-        <h2 style="font-size:28px">Same books. Day 1 vs day 30.</h2>
+      <div class="section-head compare-head">
+        <h2>Same books. Day 1 vs day 30.</h2>
         <p>Both demo accounts below hold the identical ledger. Only one has a month of memory.</p>
       </div>
       <div class="card compare">
@@ -196,7 +194,7 @@
     <div class="container">
       <div class="section-head">
         <span class="kicker">Under the hood</span>
-        <h2 style="color:#fff">A small team of agents, one shared memory</h2>
+        <h2 class="on-dark">A small team of agents, one shared memory</h2>
         <p>Each agent does one job. They never pass notes to each other: what one learns, the others read from a shared
           memory graph on the next message.</p>
       </div>
@@ -256,7 +254,7 @@
               <p>Free, in under a minute. Start typing what you sold today.</p>
               <a class="btn btn-primary" href="/app#signup">Create an account</a></div>
           </div>
-          <p class="muted" id="demo-error" style="margin-top:12px;color:var(--red-600)" hidden></p>
+          <p class="muted demo-error" id="demo-error" hidden></p>
         </div>
         <div>
           <b>Things to try</b>
@@ -268,7 +266,7 @@
             <li>Bola come, I give am the usual</li>
             <li>Chidi's mum take 1 bag rice, 45k, she go pay Monday</li>
           </ul>
-          <p class="muted" style="margin-top:14px;font-size:14px">The Books and Owed &amp; owing pages show the numbers without
+          <p class="muted demo-note">The Books and Owed &amp; owing pages show the numbers without
             typing anything. To see what memory adds, open both accounts (one in a private window) and send the same messages.</p>
         </div>
       </div>
@@ -304,11 +302,11 @@
 
   <section class="dark cta-band">
     <div class="container">
-      <h2 style="color:#fff">Know where your money is, every day</h2>
+      <h2 class="on-dark">Know where your money is, every day</h2>
       <p>Start with today's sales. Book-Keeper keeps the books from there.</p>
-      <div class="hero-actions" style="justify-content:center">
+      <div class="hero-actions centered">
         <a class="btn btn-accent" href="#demo">Try the live demo</a>
-        <a class="btn btn-ghost" style="color:#fff;border-color:rgba(255,255,255,.35)" href="/app#signup">Create an account</a>
+        <a class="btn btn-ghost on-dark-btn" href="/app#signup">Create an account</a>
       </div>
     </div>
   </section>

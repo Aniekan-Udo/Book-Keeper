@@ -222,7 +222,7 @@ Live runs against the real model, and what they changed, are written up in
 
 ## Design notes
 
-- [`Documentation.MD` §9](Documentation.MD): architecture, design patterns, **46 numbered
+- [`Documentation.MD` §9](Documentation.MD): architecture, design patterns, **47 numbered
   decisions with their trade-offs**, error handling, log events, every Cypher statement,
   live-run findings, and known limitations.
 - [`docs/hackathon-design.md`](docs/hackathon-design.md): the product design: problem,
@@ -240,6 +240,13 @@ Disclosed as Rule 11 requires:
 - **Checked by the team:** every phase was reviewed and tested by the team. That covers the
   test suite, plus live runs against the real model and FalkorDB whose failures were fixed
   and are recorded in Documentation.MD §9.9.
+
+## Security
+
+Scanned with gitleaks, pip-audit, Bandit, Semgrep (OWASP Top 10), Trivy and OWASP ZAP
+(baseline and active API scan): no failures, dependencies with no known CVEs, the container
+runs unprivileged, and every response carries a strict Content-Security-Policy and the
+usual security headers. Findings, fixes and known gaps: Documentation.MD §9, D47.
 
 ## Data
 

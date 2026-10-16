@@ -97,13 +97,14 @@ for module in (registration, login, logout, whatsapp, statements, whatsapp_auth,
 
 
 # ── security headers ─────────────────────────────────────────────────────────
-# On every response. The CSP allows scripts from this server only (no inline scripts or
-# handlers anywhere in frontend/), so injected markup can't run code; styles may be inline
-# (the statement page, a few style attributes) plus Google Fonts. No framing (clickjacking),
-# no MIME sniffing, no camera/mic/location. HSTS only on HTTPS deployments (COOKIE_SECURE).
-CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-       "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; "
-       "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'")
+# On every response. The CSP allows scripts, styles and fonts from this server only: no
+# inline scripts, handlers or style attributes anywhere in frontend/, and the font is
+# self-hosted, so injected markup can neither run code nor restyle the page. (The customer
+# statement page sets its own, stricter CSP.) No framing (clickjacking), no MIME sniffing,
+# no camera/mic/location, no cross-origin embedding or reading of our resources. Personal
+# data (the API, auth) is never cached. HSTS only on HTTPS deployments (COOKIE_SECURE).
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; "
+       "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'")
 SECURITY_HEADERS = {
     "Content-Security-Policy": CSP,
     "X-Content-Type-Options": "nosniff",
@@ -111,17 +112,23 @@ SECURITY_HEADERS = {
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
     "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Cross-Origin-Embedder-Policy": "require-corp",
 }
 DOCS_PATHS = ("/docs", "/openapi.json")  # Swagger UI loads its own scripts from a CDN
+NO_STORE_PATHS = ("/api/", "/auth/", "/login", "/logout", "/register", "/demo/", "/webhooks/")
 
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
+    docs = request.url.path.startswith(DOCS_PATHS)
     for name, value in SECURITY_HEADERS.items():
-        if name == "Content-Security-Policy" and request.url.path.startswith(DOCS_PATHS):
+        if docs and name in ("Content-Security-Policy", "Cross-Origin-Embedder-Policy"):
             continue
         response.headers.setdefault(name, value)  # a route's own choice (e.g. no-referrer) wins
+    if request.url.path.startswith(NO_STORE_PATHS):
+        response.headers.setdefault("Cache-Control", "no-store")
     if settings.COOKIE_SECURE:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return response

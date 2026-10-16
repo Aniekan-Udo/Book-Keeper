@@ -144,3 +144,13 @@ footer { padding: 34px 0 44px; font-size: 14px; color: var(--muted); }
   .compare td:first-child { width: auto; }
   .demo-box { padding: 22px; }
 }
+
+/* (formerly inline styles: the CSP allows stylesheets from this server only) */
+.compare-head { margin-top: 64px; }
+.compare-head h2 { font-size: 28px; }
+.on-dark { color: #fff; }
+.demo-error { margin-top: 12px; color: var(--red-600); }
+.demo-note { margin-top: 14px; font-size: 14px; }
+.hero-actions.centered { justify-content: center; }
+.on-dark-btn { color: #fff; border-color: rgba(255,255,255,.35); }
+.on-dark-btn:hover { color: var(--ink); }

@@ -167,6 +167,10 @@ async def test_security_headers_on_pages_and_api(new_browser):
         assert "script-src 'self'" in h["content-security-policy"] and "frame-ancestors 'none'" in h["content-security-policy"], path
         assert h["x-content-type-options"] == "nosniff" and h["x-frame-options"] == "DENY", path
         assert "camera=()" in h["permissions-policy"], path
+        assert "'unsafe-inline'" not in h["content-security-policy"] and "https:" not in h["content-security-policy"], path
+        assert h["cross-origin-resource-policy"] == "same-origin", path
+    assert (await browser.get("/api/v1/overview")).headers["cache-control"] == "no-store"
+    assert (await browser.get("/static/assets/fonts/inter-latin.woff2")).status_code == 200
 
 
 async def test_frontend_has_no_inline_scripts_or_handlers():
@@ -177,3 +181,4 @@ async def test_frontend_has_no_inline_scripts_or_handlers():
         html = (Path(__file__).parent.parent / "frontend" / page).read_text(encoding="utf-8")
         assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", html), page
         assert not re.search(r"\son[a-z]+=\"", html), page
+        assert ' style="' not in html and "fonts.googleapis" not in html, page

@@ -22,6 +22,9 @@ PRIVATE_HEADERS = {
     "X-Robots-Tag": "noindex, nofollow",
     "Cache-Control": "no-store",
     "Referrer-Policy": "no-referrer",
+    # a self-contained page: its own inline styles, and nothing else at all
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; "
+                               "base-uri 'none'; form-action 'none'",
 }
 
 STYLE = """
