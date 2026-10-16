@@ -62,6 +62,8 @@ services:
       DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
       DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
       TURN_LOCK_TIMEOUT: ${TURN_LOCK_TIMEOUT:-120}
+      JOB_QUEUE: ${JOB_QUEUE:-durable}
+      JOB_WORKERS: ${JOB_WORKERS:-2}
       VISION_MODEL: ${VISION_MODEL:-groq:qwen/qwen3.8-27b}
       TRANSCRIPTION_MODEL: ${TRANSCRIPTION_MODEL:-groq:whisper-large-v3}
       GROQ_API_KEY: ${GROQ_API_KEY:-}

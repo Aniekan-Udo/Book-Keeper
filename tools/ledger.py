@@ -64,11 +64,13 @@ def _party_key(party: str | None) -> str | None:
     return party.strip().lower() if party and party.strip() else None
 
 
-def _announce(user_id: int, parties, reason: str) -> None:
-    """Tell listeners (the graph memory) which parties' entries changed. Call only after a
-    successful commit; never raises."""
+def _change(db: AsyncSession, user_id: int, parties, reason: str) -> LedgerChanged:
+    """Which parties' entries changed, staged in this transaction (tools/ledger_events): call
+    just before the commit, then `ledger_events.committed(event)` just after."""
     keys = frozenset(k for k in (_party_key(p) for p in parties) if k)
-    ledger_events.publish(LedgerChanged(user_id=user_id, party_keys=keys, reason=reason))
+    event = LedgerChanged(user_id=user_id, party_keys=keys, reason=reason)
+    ledger_events.stage(db, event)
+    return event
 
 
 def _settle(row: TransactionORM) -> None:
@@ -219,12 +221,12 @@ async def persist_transactions(db: AsyncSession, transactions: list[TransactionI
             "clarifications": [clarification_for(r) for r in rows if r.status == "needs_amount"],
             "notes": notes,
         }
-        parties = [r.party for r in rows]
+        event = _change(db, user_id, [r.party for r in rows], "recorded")
         await db.commit()
     except Exception:
         await db.rollback()
         raise
-    _announce(user_id, parties, "recorded")
+    ledger_events.committed(event)
     return result
 
 
@@ -277,12 +279,12 @@ async def delete_transactions(db: AsyncSession, user_id: int, transaction_id: in
                 await _apply_repayment(db, rep)
 
         result = {"deleted": [describe(r) for r in rows]}
-        parties = [r.party for r in rows]
+        event = _change(db, user_id, [r.party for r in rows], "deleted")
         await db.commit()
     except Exception:
         await db.rollback()
         raise
-    _announce(user_id, parties, "deleted")
+    ledger_events.committed(event)
     return result
 
 
@@ -332,12 +334,13 @@ async def correct_transaction(db: AsyncSession, user_id: int, transaction_id: in
             await _apply_repayment(db, rep)
 
         result = {"updated": describe(row), "notes": notes}
-        parties = [party_before, row.party]  # both, if the correction moved it to someone else
+        # both parties, if the correction moved it to someone else
+        event = _change(db, user_id, [party_before, row.party], "corrected")
         await db.commit()
     except Exception:
         await db.rollback()
         raise
-    _announce(user_id, parties, "corrected")
+    ledger_events.committed(event)
     return result
 
 

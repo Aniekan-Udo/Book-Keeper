@@ -15,12 +15,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from authentication.auth import get_current_user
 from authentication.settings import settings
 from channels import whatsapp
-from db import User, get_db, get_db_session
+from db import User, engine, get_db, get_db_session
 from endpoints import dashboard, demo, login, logout, registration, statements, whatsapp_auth
 from llm import get_curator_model
 from memory import build_graph_memory, get_graph_memory, set_curator, set_graph_memory
 from memory.curator import Curator
+from memory.models import GraphMemoryError
 from memory.sync import GraphSync
+from jobs import queue as job_queue
+from jobs.queue import JobQueue
+from jobs.worker import JobWorker
 from observability import message_tracer
 from tools.assistant import respond
 from tools.ledger_events import ledger_events
@@ -37,17 +41,34 @@ async def lifespan(_: FastAPI):
     graph_sync = GraphSync(memory, get_db)
     curator = Curator(memory, get_db, model_factory=get_curator_model, tracer_factory=message_tracer)
     set_curator(curator)
+    worker = None
     if memory.enabled:
         if await memory.ping():
             logger.info("graph_memory.ready")
         else:
             logger.error("graph_memory.unreachable_at_startup")
-        ledger_events.subscribe(graph_sync.on_ledger_changed)
+        if os.getenv("JOB_QUEUE", "durable").strip().lower() == "memory":
+            # in-process delivery: no job table, but a crash can lose a sync or curation
+            ledger_events.subscribe(graph_sync.on_ledger_changed)
+        else:
+            # durable: graph sync and curation are jobs written in the same transaction as the
+            # change, run by workers here (and in every other process) with retries
+            worker = JobWorker(JobQueue(get_db), {"ledger_changed": graph_sync.handle_job,
+                                                  "curate": curator.handle_job},
+                               engine, concurrency=int(os.getenv("JOB_WORKERS", "2")),
+                               expected_errors=(GraphMemoryError,))
+            ledger_events.use_outbox(job_queue.stage, worker.wake)
+            curator.use_outbox(job_queue.stage, worker.wake)
+            await worker.start()
     try:
         yield
     finally:
         ledger_events.unsubscribe(graph_sync.on_ledger_changed)
-        # let in-flight curation and syncs finish before closing the store
+        ledger_events.use_outbox(None)
+        curator.use_outbox(None)
+        if worker:
+            await worker.stop()  # finishes jobs in hand; the rest stay queued for next time
+        # let in-flight in-process curation and syncs finish before closing the store
         await curator.drain()
         await ledger_events.drain()
         await memory.close()

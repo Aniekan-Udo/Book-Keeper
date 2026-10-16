@@ -198,14 +198,16 @@ Then open `trader_<id>` in the FalkorDB Browser. Re-seed before recording:
 
 - `uv run python -m scripts.collector_sweep`: the Collector's daily run (cron).
 - `uv run python -m scripts.rebuild_graph --all`: rebuild ledger structure in the graph
-  after an outage (learned memory is kept).
+  (learned memory is kept). Rarely needed now: graph sync and curation are durable jobs
+  that retry until the graph is back.
+- `uv run python -m scripts.jobs status | failed | retry`: look after the job queue.
 - `GET /health` → `{"status": "ok", "graph": "ok"}`.
 
 ## Tests
 
 ```bash
 docker compose up -d falkordb   # the graph tests run against a real FalkorDB (skipped if none)
-uv run pytest                   # 347 tests (+3 that need a Postgres URL), no model calls
+uv run pytest                   # 358 tests (+4 that need a Postgres URL), no model calls
 ```
 
 The memory tests cover:
@@ -220,7 +222,7 @@ Live runs against the real model, and what they changed, are written up in
 
 ## Design notes
 
-- [`Documentation.MD` §9](Documentation.MD): architecture, design patterns, **45 numbered
+- [`Documentation.MD` §9](Documentation.MD): architecture, design patterns, **46 numbered
   decisions with their trade-offs**, error handling, log events, every Cypher statement,
   live-run findings, and known limitations.
 - [`docs/hackathon-design.md`](docs/hackathon-design.md): the product design: problem,

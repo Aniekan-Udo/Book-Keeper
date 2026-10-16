@@ -103,16 +103,30 @@ class GraphSync:
         self._session_factory = session_factory
         self._retry_delay = retry_delay
 
+    async def run(self, event: LedgerChanged) -> int:
+        """One attempt: mirror these parties. Returns how many were synced; raises
+        GraphMemoryError if the store fails (the job queue retries it)."""
+        if not self._memory.enabled:
+            return 0
+        async with self._session_factory() as db:
+            snapshots = await party_snapshots(db, event.user_id, event.party_keys)
+        await self._memory.sync_parties(event.user_id, snapshots)
+        return len(snapshots)
+
+    async def handle_job(self, payload: dict, user_id: int) -> None:
+        """A queued `ledger_changed` job (jobs/queue.py)."""
+        await self.run(LedgerChanged(user_id=user_id, party_keys=frozenset(payload["party_keys"]),
+                                     reason=payload.get("reason", "recorded")))
+
     async def on_ledger_changed(self, event: LedgerChanged) -> None:
+        """The in-process delivery (tools/ledger_events): one retry, then give up quietly."""
         if not self._memory.enabled:
             return
         for attempt in (1, 2):
             started = time.perf_counter()
             try:
                 # re-read on each attempt: the retry should mirror the ledger as it is then
-                async with self._session_factory() as db:
-                    snapshots = await party_snapshots(db, event.user_id, event.party_keys)
-                await self._memory.sync_parties(event.user_id, snapshots)
+                synced = await self.run(event)
             except GraphMemoryError as e:
                 # the ledger is fine either way. One retry covers a blip; after that the graph
                 # is behind until the next change to these parties or a rebuild
@@ -122,7 +136,7 @@ class GraphSync:
                     await asyncio.sleep(self._retry_delay)
                 continue
             logger.info("graph_sync.done", user_id=event.user_id, reason=event.reason, attempt=attempt,
-                        parties=len(snapshots), ms=round((time.perf_counter() - started) * 1000, 1))
+                        parties=synced, ms=round((time.perf_counter() - started) * 1000, 1))
             return
 
     async def rebuild(self, user_id: int) -> dict:

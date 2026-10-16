@@ -36,7 +36,7 @@ from config import LooseDate, business_today
 from db import TransactionORM
 from memory.models import GraphMemoryError, KnownName, Source
 from memory.ports import GraphMemory
-from memory.recall import Recalled
+from memory.recall import Recalled, recall
 from memory.sync import SessionFactory
 from tools.ledger_events import ledger_events
 from utils import logger, provider_problem
@@ -100,6 +100,18 @@ class Turn:
     today: date = field(default_factory=business_today)
     at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
+    def to_payload(self) -> dict:
+        """For the job queue. Recall isn't kept: the worker recalls afresh when it runs."""
+        return {"turn_id": self.turn_id, "message": self.message, "reply": self.reply, "channel": self.channel,
+                "history": self.history, "touched": self.touched, "notes": self.notes,
+                "today": self.today.isoformat(), "at": self.at}
+
+    @classmethod
+    def from_payload(cls, user_id: int, p: dict) -> "Turn":
+        return cls(user_id=user_id, turn_id=p.get("turn_id"), message=p["message"], reply=p.get("reply", ""),
+                   channel=p.get("channel", "web"), history=p.get("history") or [], touched=p.get("touched") or [],
+                   notes=p.get("notes") or [], today=date.fromisoformat(p["today"]), at=p["at"])
+
 
 @dataclass
 class Outcome:
@@ -151,6 +163,7 @@ class Curator:
                  retry_delay: float = 10.0):
         self._memory = memory
         self._retry_delay = retry_delay
+        self._outbox = None  # (stage job, wake worker) when the durable queue is in use
         self._session_factory = session_factory
         self._model_factory = model_factory
         self._tracer_factory = tracer_factory
@@ -160,7 +173,36 @@ class Curator:
     def enabled(self) -> bool:
         return self._memory.enabled
 
-    # ── scheduling ──────────────────────────────────────────────────────────
+    # ── delivery ────────────────────────────────────────────────────────────
+    # The caller stages a turn before committing the reply, and calls committed() after.
+    # In-process (tests, scripts): committed() schedules a background task. With the outbox
+    # (the app): stage() writes a job in the reply's own transaction, so a saved reply
+    # always gets curated, even across a crash; committed() wakes the worker.
+
+    def use_outbox(self, stage_job, wake=None) -> None:
+        self._outbox = (stage_job, wake) if stage_job else None
+
+    def stage(self, db, turn: Turn) -> None:
+        if self._outbox and self.enabled:
+            self._outbox[0](db, "curate", turn.user_id, turn.to_payload())
+
+    def committed(self, turn: Turn) -> None:
+        if not self.enabled:
+            return
+        if self._outbox:
+            self._outbox[1]()
+        else:
+            self.schedule(turn)
+
+    async def handle_job(self, payload: dict, user_id: int) -> None:
+        """A queued `curate` job. Raises RetryLater if the graph failed before anything was
+        written (the queue retries); a failed model call isn't retried (it costs tokens)."""
+        from jobs.queue import RetryLater
+        turn = Turn.from_payload(user_id, payload)
+        turn.recalled = await recall(self._memory, user_id, turn.message)
+        outcome = await self.curate(turn)
+        if outcome.graph_failed:
+            raise RetryLater("graph store unavailable")
 
     def schedule(self, turn: Turn) -> None:
         """Run `curate` in the background. Never raises."""

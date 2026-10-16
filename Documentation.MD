@@ -815,6 +815,27 @@ under `max_connections`, leaving room for migrations and admin. One turn uses up
 connections (its session and the lock), so the defaults allow 10 concurrent turns per
 process before overflow.
 
+**D46. Graph sync and curation are durable jobs: a transactional outbox in Postgres.**
+In-process background tasks were lost if a process died. Now `jobs/queue.py` writes each
+job into the *same transaction* as the change that causes it: a `ledger_changed` job with
+the ledger entry, a `curate` job with the saved reply. Saved together or not at all, so
+there's no window between "committed" and "queued". Workers (`jobs/worker.py`,
+`JOB_WORKERS` per process, woken on commit, polling otherwise) take a user's jobs oldest
+first under a per-user advisory lock, so graph sync always runs before the curation that
+depends on it and no two processes run one user's jobs at once. A failure backs off (10 s,
+30 s, 2 min, 10 min, 30 min) and holds that user's later jobs; after `JOB_MAX_ATTEMPTS` (6)
+the job is parked as failed and the queue moves on (`scripts/jobs.py status | failed |
+retry | run`). Delivery is at-least-once; the handlers are idempotent. Tests and scripts
+keep the in-process delivery behind the same `stage()` / `committed()` interface
+(`JOB_QUEUE=memory` selects it in the app too).
+*Why Postgres, not Redis or Celery:* the outbox has to share the ledger's transaction,
+it's one service fewer to run, and the volume (a few jobs per message) is far below what a
+table queue handles.
+*Trade-off:* jobs are picked up within the poll interval (2 s) by other processes; the
+process that committed is woken at once. Seen live: with FalkorDB stopped, replies kept
+working; the sync job failed twice, backed off, then completed by itself about 9 s after
+FalkorDB came back, and the curation queued behind it ran right after.
+
 ### 9.5 Error handling
 
 | Where | Fails how | What happens |
@@ -837,6 +858,9 @@ process before overflow.
 | `agents/team.py` node | Claimed recording, nothing recorded | `team.unbacked_claim`, one re-run; `team.unbacked_claim_again` if it happens twice |
 | `agents/team.py` | Second handoff attempted | `team.handoff_refused`; the second agent's reply is used |
 | `tools/turn_lock.user_turn_lock` | The same user's previous turn still running past `TURN_LOCK_TIMEOUT` | `turn_lock.busy` (process or database); `TurnInProgress`: "still working on your last message" |
+| `jobs/worker.py` | A job's handler fails | `jobs.retry` with backoff; holds the user's later jobs; after `JOB_MAX_ATTEMPTS` → `jobs.failed`, parked (`scripts/jobs.py retry`) |
+| `jobs/worker.py` | Unknown job kind | Failed at once (`Permanent`) |
+| `jobs/worker.py` | Database or lock connection breaks | `jobs.worker_error`, back off, reconnect; jobs stay pending |
 | `tools/turn_lock._advisory_lock` | Unlock fails | `turn_lock.unlock_failed`; closing the connection releases the lock anyway |
 | `Collector.who_to_chase` | Sweep or recall fails | `collector.sweep_failed` / `collector.recall_failed`; ranks on the ledger alone (overdue, amount) |
 | `Collector.do_not_remind` | Graph unavailable | `collector.check_failed`; returns no restriction (the prompt still carries what recall found, if anything) |
@@ -876,6 +900,9 @@ Structured JSON via structlog (`utils.logger`).
 | `explain.done` | info | A "why?" answer: promises, facts, aliases, quotes found |
 | `router.model_slip_retry` / `router.model_slip_again` | warning / error | Malformed tool call retried / failed twice |
 | `router.turn_timeout` | warning | An agent run hit the ceiling |
+| `jobs.workers_started` / `jobs.workers_stopped` | info | Workers per process, Postgres or not |
+| `jobs.done` | info | A job finished: kind, attempts, how long it waited in the queue, ms |
+| `jobs.retry` / `jobs.failed` | warning / error | A job failed and will be retried / was parked |
 | `turn_lock.waited` / `turn_lock.busy` | info / warning | A message waited over 1 s for the same user's previous one / gave up waiting |
 
 ### 9.7 The Cypher the product runs
@@ -916,8 +943,11 @@ All in `memory/falkor.py`:
   (default 10 / 10 per process), `TURN_LOCK_TIMEOUT` (default 120).
 - Scaling out: run more app processes freely. Turns stay one-at-a-time per user (D44);
   keep processes × (pool + overflow) under Postgres `max_connections` (D45). Graph sync
-  and curation are still in-process background tasks, lost if a process dies mid-task:
-  `rebuild_graph` repairs the ledger side.
+  and curation are durable jobs, shared across processes (D46); each worker holds one
+  extra connection for its user locks.
+- Job queue: `uv run python -m scripts.jobs status` (pending/failed by kind), `failed`,
+  `retry [--id N]`, `run [--forever]` (drain the queue, or run a worker process).
+  Settings: `JOB_QUEUE` (`durable` / `memory`), `JOB_WORKERS` (2), `JOB_MAX_ATTEMPTS` (6).
 - Demo: `uv run python -m scripts.seed_demo [--reset]`, then `uv run python -m scripts.demo_check`.
 - After an outage, or to backfill existing traders:
   `uv run python -m scripts.rebuild_graph --all` (or `--user 12`).

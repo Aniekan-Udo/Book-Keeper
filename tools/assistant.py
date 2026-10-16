@@ -102,13 +102,12 @@ async def respond(db: AsyncSession, user_id: int, text: str, channel: str) -> As
                              trace_id=trace_id_of(tracer)),
         ])
         await db.flush()
-        turn_id = user_turn.id  # read before commit expires it
+        turn = Turn(user_id=user_id, turn_id=user_turn.id, message=text, reply=reply, channel=channel,
+                    history=history, touched=touched, recalled=recalled, notes=notes)
+        curator = get_curator()
+        curator.stage(db, turn)      # with the job queue: saved together with the reply
         await db.commit()
-
-        get_curator().schedule(Turn(
-            user_id=user_id, turn_id=turn_id, message=text, reply=reply, channel=channel,
-            history=history, touched=touched, recalled=recalled, notes=notes,
-        ))
+        curator.committed(turn)      # in-process: start curating; queue: wake the worker
         logger.debug("assistant.turn", user_id=user_id, agents=team.trail, route=team.route_reason,
                      touched=len(touched), remembered=len(recalled.people))
         return AssistantReply(reply=reply, clarifications=clarifications)

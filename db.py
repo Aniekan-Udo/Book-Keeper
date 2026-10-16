@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy import MetaData, String, Date, Integer, Text, Float, ForeignKey, DateTime, Boolean, JSON, Numeric, UniqueConstraint, Enum as SQLEnum
+from sqlalchemy import MetaData, String, Date, Integer, Text, Float, ForeignKey, DateTime, Boolean, JSON, Numeric, UniqueConstraint, Index, Enum as SQLEnum
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -302,6 +302,29 @@ class PhoneChallenge(Model):
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class Job(Model):
+    """Durable background work: graph sync after a ledger change, and memory curation after
+    a reply (jobs/queue.py). Written in the same transaction as the change that causes it,
+    so a crash can't lose it. Done jobs are deleted; failed ones stay for inspection."""
+    __tablename__ = "jobs"
+    # the worker's lookups: a user's oldest pending job, and users with due work
+    __table_args__ = (Index("ix_jobs_status_user_id_id", "status", "user_id", "id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(40), nullable=False)        # ledger_changed / curate
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(12), nullable=False, default="pending")  # pending / failed
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    run_after: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
 
 
 async def init_models():

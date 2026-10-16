@@ -31,6 +31,9 @@ TEST_DATABASE_URL="postgresql+asyncpg://test:test@localhost:5434/test_db" uv run
   and the record tool refusing ambiguous names.
 - `test_collector.py` — the Collector (sweep, ranking with reasons, do-not-remind in the reminder
   tool), reminder and bank-name notes, the Alert matcher using bank names, and the "why?" tool.
+- `test_jobs.py` — the durable job queue: saved with the change or not at all, order per user, backoff,
+  parking failed jobs, crash recovery, graph sync and curation through it; across two processes when
+  `TEST_JOBS_POSTGRES_URL` is set.
 - `test_turn_lock.py` — one turn at a time per user: the in-process gate, and the Postgres advisory
   lock across processes (set `TEST_LOCK_POSTGRES_URL` to run those; they touch no tables).
 - `test_web_app.py` — landing page, app shell, Books/Owed & owing/People/chase views, demo login.
