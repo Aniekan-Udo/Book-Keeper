@@ -74,7 +74,12 @@ async def lifespan(_: FastAPI):
         await memory.close()
 
 
-app = FastAPI(title="AI Book-Keeper", lifespan=lifespan)
+# The interactive API docs map every endpoint: handy in development, an unnecessary gift to
+# an attacker in production. Off unless ENABLE_API_DOCS is set.
+API_DOCS = os.getenv("ENABLE_API_DOCS", "").strip().lower() in ("1", "true", "yes", "on")
+app = FastAPI(title="AI Book-Keeper", lifespan=lifespan,
+              docs_url="/docs" if API_DOCS else None, redoc_url=None,
+              openapi_url="/openapi.json" if API_DOCS else None)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -89,6 +94,42 @@ if settings.allowed_origins:
 
 for module in (registration, login, logout, whatsapp, statements, whatsapp_auth, dashboard, demo):
     app.include_router(module.router)
+
+
+# ── security headers ─────────────────────────────────────────────────────────
+# On every response. The CSP allows scripts from this server only (no inline scripts or
+# handlers anywhere in frontend/), so injected markup can't run code; styles may be inline
+# (the statement page, a few style attributes) plus Google Fonts. No framing (clickjacking),
+# no MIME sniffing, no camera/mic/location. HSTS only on HTTPS deployments (COOKIE_SECURE).
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+       "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; "
+       "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'")
+SECURITY_HEADERS = {
+    "Content-Security-Policy": CSP,
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+}
+DOCS_PATHS = ("/docs", "/openapi.json")  # Swagger UI loads its own scripts from a CDN
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        if name == "Content-Security-Policy" and request.url.path.startswith(DOCS_PATHS):
+            continue
+        response.headers.setdefault(name, value)  # a route's own choice (e.g. no-referrer) wins
+    if settings.COOKIE_SECURE:
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
+
+
+if os.getenv("APP_PUBLIC_URL", "").startswith("https://") and not settings.COOKIE_SECURE:
+    logger.warning("security.cookie_not_secure",
+                   hint="APP_PUBLIC_URL is https but COOKIE_SECURE is false: set COOKIE_SECURE=true")
 
 
 # ── CSRF ─────────────────────────────────────────────────────────────────────

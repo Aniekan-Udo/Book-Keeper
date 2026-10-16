@@ -158,3 +158,22 @@ async def test_debts_say_who_owes_what_for_what_and_when(new_browser, test_user,
     assert entry["days_overdue"] > 0 and d["owed_to_you"]["overdue"] == 40000
     [musa] = d["you_owe"]["people"]
     assert (musa["name"], musa["balance"], musa["entries"][0]["item"]) == ("Alhaji Musa", 50000, "palm oil")
+
+
+async def test_security_headers_on_pages_and_api(new_browser):
+    browser = await new_browser()
+    for path in ("/", "/app", "/health", "/api/v1/overview"):
+        h = (await browser.get(path)).headers
+        assert "script-src 'self'" in h["content-security-policy"] and "frame-ancestors 'none'" in h["content-security-policy"], path
+        assert h["x-content-type-options"] == "nosniff" and h["x-frame-options"] == "DENY", path
+        assert "camera=()" in h["permissions-policy"], path
+
+
+async def test_frontend_has_no_inline_scripts_or_handlers():
+    """The CSP allows scripts from this server only: inline ones would silently stop working."""
+    import re
+    from pathlib import Path
+    for page in ("index.html", "app.html"):
+        html = (Path(__file__).parent.parent / "frontend" / page).read_text(encoding="utf-8")
+        assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", html), page
+        assert not re.search(r"\son[a-z]+=\"", html), page

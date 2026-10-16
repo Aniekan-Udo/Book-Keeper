@@ -73,9 +73,10 @@ async def _advisory_lock(engine: AsyncEngine, user_id: int, timeout: float):
     started = time.perf_counter()
     async with engine.connect() as conn:
         try:
-            # SET LOCAL ends with this transaction, so the pooled connection doesn't keep the
-            # timeout; the advisory lock is session-level and outlives the commit
-            await conn.execute(text(f"SET LOCAL lock_timeout = '{int(timeout * 1000)}ms'"))
+            # local to this transaction (is_local=true), so the pooled connection doesn't keep
+            # the timeout; the advisory lock is session-level and outlives the commit
+            await conn.execute(text("SELECT set_config('lock_timeout', :ms, true)"),
+                               {"ms": f"{int(timeout * 1000)}ms"})
             await conn.execute(text("SELECT pg_advisory_lock(:ns, :uid)"), {"ns": LOCK_NAMESPACE, "uid": int(user_id)})
             await conn.commit()
         except DBAPIError as e:

@@ -3,5 +3,11 @@
 # cross-site check relies on it) and sets X-Forwarded-For with the client's IP.
 {$DOMAIN} {
 	encode gzip
+	header {
+		# browsers only ever use HTTPS for this site from now on
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# don't advertise the server software
+		-Server
+	}
 	reverse_proxy api:8001
 }

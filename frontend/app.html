@@ -38,12 +38,12 @@
     </div>
 
     <div class="tabs" role="tablist">
-      <button class="tab active" id="tab-login" role="tab" onclick="showAuthTab('login')">Log in</button>
-      <button class="tab" id="tab-register" role="tab" onclick="showAuthTab('register')">Create account</button>
+      <button class="tab active" id="tab-login" role="tab" data-action="auth-tab" data-tab="login">Log in</button>
+      <button class="tab" id="tab-register" role="tab" data-action="auth-tab" data-tab="register">Create account</button>
     </div>
 
     <div id="login-panel">
-      <form class="auth-form wa-only" id="wa-login-form" onsubmit="submitWhatsAppLogin(event)" hidden>
+      <form class="auth-form wa-only" id="wa-login-form" data-submit="wa-login" hidden>
         <div class="field"><label for="wa-login-phone">Your WhatsApp number</label>
           <input class="input" id="wa-login-phone" type="tel" autocomplete="tel" placeholder="0803 123 4567" required /></div>
         <button class="btn btn-primary btn-block auth-submit" type="submit">Log in with WhatsApp</button>
@@ -51,7 +51,7 @@
       <div class="challenge" id="wa-login-challenge" hidden></div>
       <details class="alt-login" id="email-login">
         <summary>Log in with email</summary>
-        <form class="auth-form" id="login-form" onsubmit="submitLogin(event)">
+        <form class="auth-form" id="login-form" data-submit="login">
           <div class="field"><label for="login-email">Email</label>
             <input class="input" id="login-email" type="email" autocomplete="email" required /></div>
           <div class="field"><label for="login-password">Password</label>
@@ -61,7 +61,7 @@
       </details>
     </div>
 
-    <form class="auth-form" id="register-form" onsubmit="submitRegister(event)" hidden>
+    <form class="auth-form" id="register-form" data-submit="register" hidden>
       <a class="wa-signup wa-only" id="wa-signup-link" href="#" target="_blank" rel="noopener" hidden>
         <strong>Easiest: sign up on WhatsApp</strong>
         <span>Send us "Hi". You'll be set up in 2 quick questions, no password needed.</span>
@@ -95,13 +95,13 @@
           <div class="menu-name" id="account-name"></div>
           <div class="menu-sub" id="account-email"></div>
           <div class="menu-sub" id="account-whatsapp"></div>
-          <form class="connect-wa wa-only" id="connect-wa-form" onsubmit="submitConnectWhatsApp(event)" hidden>
+          <form class="connect-wa wa-only" id="connect-wa-form" data-submit="wa-connect" hidden>
             <input class="input" id="connect-wa-phone" type="tel" autocomplete="tel" placeholder="Your WhatsApp number" required />
             <button class="btn btn-ghost btn-sm" type="submit">Connect WhatsApp</button>
           </form>
           <div class="challenge" id="connect-wa-challenge" hidden></div>
           <hr />
-          <button class="menu-item" onclick="logout()">Log out</button>
+          <button class="menu-item" data-action="logout">Log out</button>
         </div>
       </div>
     </div>
@@ -123,8 +123,8 @@
         <div class="suggestions" id="suggestions"></div>
         <div class="composer-box">
           <textarea id="msg-input" rows="1" placeholder="Tell me what happened… e.g. I sold 5 bags of rice for 225k"
-                    oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
-          <button class="send" id="send-btn" onclick="sendMessage()" title="Send (Enter)" aria-label="Send"><svg><use href="#i-send"/></svg></button>
+                    data-input="composer"></textarea>
+          <button class="send" id="send-btn" data-action="send" title="Send (Enter)" aria-label="Send"><svg><use href="#i-send"/></svg></button>
         </div>
         <div class="composer-hint">Enter to send · Shift+Enter for a new line · English or Pidgin</div>
       </div>
@@ -148,10 +148,10 @@
         <div class="card panel"><div class="panel-head"><h2>Where the money went</h2><span class="muted" id="ov-exp-total"></span></div><div id="ov-exp-items"></div></div>
       </div>
       <div class="grid-2">
-        <div class="card panel"><div class="panel-head"><h2>Owed to you</h2><button class="linkish" onclick="showView('debts')">See details</button></div><div id="ov-owed"></div></div>
-        <div class="card panel"><div class="panel-head"><h2>You owe</h2><button class="linkish" onclick="showView('debts')">See details</button></div><div id="ov-owe"></div></div>
+        <div class="card panel"><div class="panel-head"><h2>Owed to you</h2><button class="linkish" data-action="view" data-view-target="debts">See details</button></div><div id="ov-owed"></div></div>
+        <div class="card panel"><div class="panel-head"><h2>You owe</h2><button class="linkish" data-action="view" data-view-target="debts">See details</button></div><div id="ov-owe"></div></div>
       </div>
-      <div class="card panel"><div class="panel-head"><h2>Recent entries</h2><button class="linkish" onclick="showView('chat')">Record something</button></div><div class="table-wrap"><table class="table" id="ov-recent"></table></div></div>
+      <div class="card panel"><div class="panel-head"><h2>Recent entries</h2><button class="linkish" data-action="view" data-view-target="chat">Record something</button></div><div class="table-wrap"><table class="table" id="ov-recent"></table></div></div>
     </section>
 
     <!-- owed & owing -->
@@ -171,7 +171,7 @@
     <section class="view view-pad" id="view-chase">
       <div class="view-head">
         <div><h1>Who to chase</h1><p class="muted" id="chase-rule"></p></div>
-        <button class="btn btn-ghost btn-sm" onclick="loadChase()"><svg class="btn-icon"><use href="#i-refresh"/></svg> Refresh</button>
+        <button class="btn btn-ghost btn-sm" data-action="reload-chase"><svg class="btn-icon"><use href="#i-refresh"/></svg> Refresh</button>
       </div>
       <div id="chase-list" class="stack"></div>
       <div id="chase-skipped"></div>
@@ -181,7 +181,7 @@
     <section class="view view-pad" id="view-people">
       <div class="view-head">
         <div><h1>People</h1><p class="muted">Your customers and suppliers: balances, and what Book-Keeper remembers about each.</p></div>
-        <input class="input search" id="people-search" type="search" placeholder="Search people" oninput="renderPeople()" />
+        <input class="input search" id="people-search" type="search" placeholder="Search people" data-input="people-search" />
       </div>
       <div id="people-list" class="people-grid"></div>
     </section>
@@ -189,10 +189,10 @@
 </div>
 
 <!-- person drawer -->
-<div class="drawer-backdrop" id="drawer-backdrop" hidden onclick="closeDrawer()"></div>
+<div class="drawer-backdrop" id="drawer-backdrop" hidden data-action="close-drawer"></div>
 <aside class="drawer" id="drawer" hidden aria-live="polite">
   <div class="drawer-head"><h2 id="drawer-title"></h2>
-    <button class="icon-btn" onclick="closeDrawer()" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
+    <button class="icon-btn" data-action="close-drawer" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
   <div class="drawer-body" id="drawer-body"></div>
 </aside>
 

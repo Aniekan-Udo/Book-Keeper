@@ -618,6 +618,26 @@ async function openPerson(name) {
   body.append(es);
 }
 
+// ── wiring (no inline handlers, so the Content-Security-Policy can be strict) ───
+const ACTIONS = {
+  'auth-tab': (el) => showAuthTab(el.dataset.tab),
+  'logout': () => logout(),
+  'view': (el) => showView(el.dataset.viewTarget),
+  'reload-chase': () => loadChase(),
+  'close-drawer': () => closeDrawer(),
+  'send': () => sendMessage(),
+};
+const SUBMITS = { 'wa-login': submitWhatsAppLogin, 'login': submitLogin, 'register': submitRegister,
+                  'wa-connect': submitConnectWhatsApp };
+document.addEventListener('click', (e) => {
+  const target = e.target.closest('[data-action]');
+  if (target && ACTIONS[target.dataset.action]) ACTIONS[target.dataset.action](target, e);
+});
+document.querySelectorAll('form[data-submit]').forEach(f => f.addEventListener('submit', (e) => SUBMITS[f.dataset.submit](e)));
+$('people-search').addEventListener('input', renderPeople);
+$('msg-input').addEventListener('input', (e) => autoResize(e.target));
+$('msg-input').addEventListener('keydown', handleKey);
+
 // ── start ────────────────────────────────────────────────────────────────────
 renderSuggestions();
 if (location.hash === '#signup') showAuthTab('register');
