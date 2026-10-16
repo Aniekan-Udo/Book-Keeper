@@ -22,7 +22,7 @@ from sqlalchemy import select
 from db import User, engine, get_db
 from main import app, lifespan
 from memory import get_curator
-from scripts.seed_demo import DAY1, DAY30
+from endpoints.demo import DAY1, DAY30
 from tools.assistant import respond
 from tools.ledger_events import ledger_events
 

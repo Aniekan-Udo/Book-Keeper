@@ -3,881 +3,358 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Book-Keeper</title>
+  <title>Book-Keeper: the bookkeeper that remembers your customers</title>
+  <meta name="description" content="Keep your shop's books by chatting in English or Pidgin, on WhatsApp or the web. Book-Keeper remembers your customers, their promises and habits, and tells you who to chase first, and why." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    /* the hidden attribute must win over any display rule (e.g. display:flex panels) */
-    [hidden] { display: none !important; }
-
-    :root {
-      --bg:        #0b0d14;
-      --surface:   #13161f;
-      --surface2:  #1c2030;
-      --border:    #252a3a;
-      --accent:    #e8a325;
-      --accent-dim:#b37d18;
-      --text:      #e8eaf0;
-      --text-muted:#6b7280;
-      --user-bubble: #1d3461;
-      --ai-bubble:   #1c2030;
-      --red:       #ef4444;
-      --green:     #22c55e;
-    }
-
-    html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); }
-
-    .layout { display: flex; height: 100vh; overflow: hidden; }
-
-    /* Sidebar */
-    .sidebar {
-      width: 260px; min-width: 260px;
-      background: var(--surface);
-      border-right: 1px solid var(--border);
-      display: flex; flex-direction: column;
-      padding: 24px 16px; gap: 24px;
-    }
-
-    .logo { display: flex; align-items: center; gap: 10px; }
-    .logo-icon {
-      width: 36px; height: 36px; border-radius: 8px;
-      background: linear-gradient(135deg, var(--accent), var(--accent-dim));
-      display: flex; align-items: center; justify-content: center; font-size: 18px;
-    }
-    .logo-text { font-size: 15px; font-weight: 700; line-height: 1.2; }
-    .logo-sub  { font-size: 11px; color: var(--text-muted); }
-
-    .sidebar-section label {
-      display: block; font-size: 11px; font-weight: 600;
-      color: var(--text-muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px;
-    }
-
-    .sidebar-section input {
-      width: 100%; padding: 8px 10px;
-      background: var(--surface2); border: 1px solid var(--border);
-      border-radius: 8px; color: var(--text); font-size: 13px; font-family: inherit;
-      outline: none; transition: border-color .15s;
-    }
-    .sidebar-section input:focus { border-color: var(--accent); }
-
-    .status-dot {
-      display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-      background: var(--text-muted); margin-right: 6px; vertical-align: middle; transition: background .3s;
-    }
-    .status-dot.ok  { background: var(--green); box-shadow: 0 0 6px var(--green); }
-    .status-dot.err { background: var(--red);   box-shadow: 0 0 6px var(--red);   }
-    #status-text { font-size: 12px; color: var(--text-muted); }
-
-    .sidebar-section.examples { flex: 1; overflow-y: auto; min-height: 140px; }
-    .example-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }
-    .chip-grid { display: flex; flex-direction: column; gap: 6px; }
-    .chip {
-      padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.4;
-      background: var(--surface2); border: 1px solid var(--border);
-      cursor: pointer; transition: background .15s, border-color .15s;
-      text-align: left; color: var(--text); font-family: inherit;
-    }
-    .chip:hover { background: var(--border); border-color: var(--accent); }
-
-    .clear-btn {
-      width: 100%; padding: 9px; border-radius: 8px; font-size: 13px; font-weight: 500;
-      background: transparent; border: 1px solid var(--border);
-      color: var(--text-muted); cursor: pointer; font-family: inherit; transition: all .15s;
-    }
-    .clear-btn:hover { background: var(--surface2); color: var(--text); }
-
-    /* Main */
-    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-
-    .messages {
-      flex: 1; overflow-y: auto; padding: 24px 28px;
-      display: flex; flex-direction: column; gap: 16px; scroll-behavior: smooth;
-    }
-    .messages::-webkit-scrollbar { width: 4px; }
-    .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-
-    .bubble-row { display: flex; gap: 10px; max-width: 720px; }
-    .bubble-row.user { align-self: flex-end; flex-direction: row-reverse; }
-    .bubble-row.ai   { align-self: flex-start; }
-
-    .avatar {
-      width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
-      display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700;
-    }
-    .ai .avatar   { background: linear-gradient(135deg, var(--accent), var(--accent-dim)); color: #000; font-size: 13px; }
-    .user .avatar { background: var(--user-bubble); color: var(--text); font-size: 12px; }
-
-    .bubble {
-      padding: 12px 16px; border-radius: 16px; font-size: 14px; line-height: 1.6;
-      max-width: 560px; word-break: break-word; white-space: pre-wrap;
-    }
-    .ai   .bubble { background: var(--ai-bubble); border: 1px solid var(--border); border-top-left-radius: 4px; }
-    .user .bubble { background: var(--user-bubble); border-top-right-radius: 4px; }
-    .bubble-meta { font-size: 10px; color: var(--text-muted); margin-top: 4px; padding: 0 4px; }
-    .user .bubble-meta { text-align: right; }
-
-    /* Typing */
-    .typing .bubble { padding: 14px 18px; }
-    .dots { display: flex; gap: 4px; align-items: center; height: 16px; }
-    .dots span {
-      width: 6px; height: 6px; border-radius: 50%;
-      background: var(--text-muted); animation: dot-pulse 1.2s infinite;
-    }
-    .dots span:nth-child(2) { animation-delay: .2s; }
-    .dots span:nth-child(3) { animation-delay: .4s; }
-    @keyframes dot-pulse {
-      0%, 80%, 100% { transform: scale(.7); opacity: .4; }
-      40%            { transform: scale(1);  opacity: 1;  }
-    }
-
-    /* Clarification card */
-    .clarify-card {
-      background: var(--surface2); border: 1px solid var(--accent);
-      border-radius: 12px; padding: 14px 16px; margin-top: 8px;
-      display: flex; flex-direction: column; gap: 10px; max-width: 340px;
-    }
-    .clarify-title { font-size: 12px; font-weight: 600; color: var(--accent); }
-    .clarify-msg   { font-size: 13px; color: var(--text); }
-    .clarify-row   { display: flex; gap: 8px; }
-    .clarify-row input {
-      flex: 1; padding: 8px 10px; border-radius: 8px;
-      background: var(--bg); border: 1px solid var(--border);
-      color: var(--text); font-size: 13px; font-family: inherit; outline: none;
-    }
-    .clarify-row input:focus { border-color: var(--accent); }
-    .clarify-submit {
-      padding: 8px 14px; border-radius: 8px; background: var(--accent);
-      border: none; color: #000; font-size: 13px; font-weight: 600;
-      cursor: pointer; font-family: inherit; transition: opacity .15s;
-    }
-    .clarify-submit:hover { opacity: .85; }
-
-    /* Input bar */
-    .input-bar {
-      padding: 16px 28px 20px;
-      border-top: 1px solid var(--border); background: var(--surface);
-    }
-    .input-inner {
-      display: flex; gap: 10px; align-items: flex-end;
-      background: var(--surface2); border: 1px solid var(--border);
-      border-radius: 12px; padding: 8px 8px 8px 14px; transition: border-color .15s;
-    }
-    .input-inner:focus-within { border-color: var(--accent); }
-    #msg-input {
-      flex: 1; background: none; border: none; outline: none;
-      color: var(--text); font-size: 14px; font-family: inherit;
-      resize: none; max-height: 120px; line-height: 1.5; padding: 4px 0;
-    }
-    #msg-input::placeholder { color: var(--text-muted); }
-    #send-btn {
-      width: 38px; height: 38px; border-radius: 8px; flex-shrink: 0;
-      background: var(--accent); border: none; cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      transition: opacity .15s, transform .1s;
-    }
-    #send-btn:hover  { opacity: .9; }
-    #send-btn:active { transform: scale(.94); }
-    #send-btn:disabled { opacity: .35; cursor: not-allowed; }
-    #send-btn svg { width: 16px; height: 16px; fill: #000; }
-
-    .hint { font-size: 11px; color: var(--text-muted); margin-top: 8px; text-align: center; }
-
-    /* Toast */
-    .toast {
-      position: fixed; bottom: 24px; right: 24px;
-      background: #3b1818; border: 1px solid var(--red);
-      color: #fca5a5; border-radius: 10px; padding: 12px 16px;
-      font-size: 13px; max-width: 320px; line-height: 1.5;
-      animation: slide-in .2s ease; z-index: 100;
-    }
-    @keyframes slide-in { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
-
-    /* Empty state */
-    .empty-state {
-      flex: 1; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; gap: 12px;
-      color: var(--text-muted); padding: 40px;
-    }
-    .empty-icon  { font-size: 48px; opacity: .4; }
-    .empty-title { font-size: 18px; font-weight: 600; color: var(--text); }
-    .empty-sub   { font-size: 13px; text-align: center; max-width: 380px; line-height: 1.6; }
-
-    .sidebar-section.examples::-webkit-scrollbar { width: 3px; }
-    .sidebar-section.examples::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-
-    /* Mobile responsive layout */
-    .mobile-header-toggle {
-      display: none;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      color: var(--text);
-      border-radius: 6px;
-      padding: 6px 12px;
-      font-size: 13px;
-      font-family: inherit;
-      cursor: pointer;
-    }
-    .sidebar-body {
-      display: flex;
-      flex-direction: column;
-      gap: 24px;
-      flex: 1;
-      overflow-y: auto;
-    }
-
-    @media (max-width: 768px) {
-      .layout {
-        flex-direction: column;
-        height: 100vh;
-        height: 100dvh;
-      }
-      .sidebar {
-        width: 100%;
-        min-width: 0;
-        border-right: none;
-        border-bottom: 1px solid var(--border);
-        padding: 14px 16px;
-        gap: 0;
-      }
-      .logo {
-        justify-content: space-between;
-        width: 100%;
-      }
-      .mobile-header-toggle {
-        display: block;
-      }
-      .sidebar-body {
-        display: none;
-        max-height: 50vh;
-        margin-top: 14px;
-        padding-top: 14px;
-        border-top: 1px solid var(--border);
-      }
-      .sidebar-body.open {
-        display: flex;
-      }
-      /* the menu scrolls as a whole on phones, so the examples keep their full height */
-      .sidebar-section.examples {
-        flex: none;
-        overflow: visible;
-      }
-      .messages {
-        padding: 16px 12px;
-      }
-      .input-bar {
-        padding: 12px 12px 16px;
-      }
-      .bubble-row {
-        max-width: 100%;
-      }
-      .bubble {
-        max-width: 88%;
-      }
-    }
-
-    /* Auth screen */
-    .auth-overlay {
-      position: fixed; inset: 0; z-index: 50;
-      background: var(--bg);
-      display: flex; align-items: center; justify-content: center;
-      padding: 16px; overflow-y: auto;
-    }
-    .auth-overlay[hidden] { display: none; }
-    .auth-card {
-      width: 100%; max-width: 380px;
-      background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
-      padding: 24px; display: flex; flex-direction: column; gap: 16px;
-    }
-    .auth-tabs { display: flex; gap: 6px; background: var(--surface2); padding: 4px; border-radius: 10px; }
-    .auth-tab {
-      flex: 1; padding: 8px; border: none; border-radius: 8px; cursor: pointer;
-      background: transparent; color: var(--text-muted); font: 600 13px 'Inter', sans-serif;
-    }
-    .auth-tab.active { background: var(--border); color: var(--text); }
-    .auth-form { display: flex; flex-direction: column; gap: 10px; }
-    .auth-form[hidden] { display: none; }
-    .auth-form .row { display: flex; gap: 8px; }
-    .auth-form .row > * { flex: 1; min-width: 0; }
-    .auth-form label { font-size: 11px; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 4px; }
-    .auth-form input {
-      width: 100%; padding: 10px 12px;
-      background: var(--surface2); border: 1px solid var(--border);
-      border-radius: 8px; color: var(--text); font-size: 14px; font-family: inherit; outline: none;
-    }
-    .auth-form input:focus { border-color: var(--accent); }
-    .auth-submit {
-      margin-top: 4px; padding: 11px; border: none; border-radius: 8px; cursor: pointer;
-      background: var(--accent); color: #000; font: 600 14px 'Inter', sans-serif;
-    }
-    .auth-submit:disabled { opacity: .6; cursor: default; }
-    .auth-error { font-size: 13px; color: var(--red); min-height: 1em; }
-    .alt-login { margin-top: 4px; }
-    .alt-login summary { cursor: pointer; font-size: 13px; color: var(--text-muted); padding: 6px 0; }
-    .alt-login[open] summary { margin-bottom: 8px; }
-    .wa-signup {
-      display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: 10px;
-      background: var(--surface2); border: 1px solid var(--border); color: var(--text); text-decoration: none; font-size: 13px;
-    }
-    .wa-signup span { color: var(--text-muted); }
-    .wa-signup:hover { border-color: var(--accent); }
-    .challenge { display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: var(--text-muted); }
-    .challenge .code-box {
-      font: 700 22px/1.2 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .08em; color: var(--text);
-      background: var(--surface2); border: 1px dashed var(--border); border-radius: 8px; padding: 10px; text-align: center;
-    }
-    .challenge .wa-button {
-      display: block; text-align: center; padding: 11px; border-radius: 8px; text-decoration: none;
-      background: #25D366; color: #06200f; font: 600 14px 'Inter', sans-serif;
-    }
-    .challenge .waiting::before { content: "⏳ "; }
-    .challenge .problem { color: var(--red); }
-    .challenge button.linkish { background: none; border: none; color: var(--text-muted); text-decoration: underline; cursor: pointer; font: inherit; padding: 0; align-self: flex-start; }
-    .connect-wa { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
-    .account-name { font-size: 14px; font-weight: 600; }
-    .account-email { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; word-break: break-all; }
-  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/assets/base.css" />
+  <link rel="stylesheet" href="/static/assets/landing.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23146349'/%3E%3Cpath d='M9 8h10a4 4 0 0 1 4 4v12H13a4 4 0 0 1-4-4z' fill='none' stroke='white' stroke-width='2.2'/%3E%3Cpath d='M13 13h6M13 17h4' stroke='%23e8a325' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E" />
 </head>
 <body>
-<div class="auth-overlay" id="auth-overlay" hidden>
-  <div class="auth-card">
-    <div class="logo">
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <div class="logo-icon">&#128210;</div>
-        <div>
-          <div class="logo-text">AI Book-Keeper</div>
-          <div class="logo-sub">Your books, in your own words</div>
-        </div>
-      </div>
-    </div>
-    <div class="auth-tabs">
-      <button class="auth-tab active" id="tab-login" onclick="showAuthTab('login')">Log in</button>
-      <button class="auth-tab" id="tab-register" onclick="showAuthTab('register')">Sign up</button>
-    </div>
 
-    <div id="login-panel">
-      <form class="auth-form wa-only" id="wa-login-form" onsubmit="submitWhatsAppLogin(event)" hidden>
-        <div><label for="wa-login-phone">Your WhatsApp number</label><input id="wa-login-phone" type="tel" autocomplete="tel" placeholder="0803 123 4567" required /></div>
-        <button class="auth-submit" type="submit">Log in with WhatsApp</button>
-      </form>
-      <div class="challenge" id="wa-login-challenge" hidden></div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-logo" viewBox="0 0 24 24"><path d="M5 4h10a4 4 0 0 1 4 4v12H9a4 4 0 0 1-4-4z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6M9 13h4" stroke="#e8a325" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.4 8.4 8 9 4.6-.6 8-4 8-9V6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="m9 12 2 2 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 20c.6-3.4 3-5.5 6-5.5s5.4 2.1 6 5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="17" cy="9" r="2.4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16.5 14.6c2.4.2 4 1.9 4.5 4.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-handshake" viewBox="0 0 24 24"><path d="M3 12 7 8l4 2 3-2 7 5-4 4-5-3-2 1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-bag" viewBox="0 0 24 24"><path d="M5 8h14l-1 12H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 8a3 3 0 0 1 6 0" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-bell-off" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 9.5-4.9M18 11v5l2 2H8M10 20a2 2 0 0 0 4 0M3 3l18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="m20 20-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-bank" viewBox="0 0 24 24"><path d="M3 9 12 4l9 5M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-no-money" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 3l18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-graph" viewBox="0 0 24 24"><circle cx="5" cy="6" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="19" cy="7" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="18" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="10" r="2" fill="currentColor"/><path d="M7 7l3.3 2M16.8 7.7 13.8 9.4M12 12v3.6M6.4 8.2l4.4 7.9" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M7 3h7l5 5v13H7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v5h5M10 13h6M10 17h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 7 4 12l5 5M4 12h11a5 5 0 0 1 0 10h-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+</svg>
 
-      <details class="alt-login" id="email-login">
-        <summary>Log in with email instead</summary>
-        <form class="auth-form" id="login-form" onsubmit="submitLogin(event)">
-          <div><label for="login-email">Email</label><input id="login-email" type="email" autocomplete="email" required /></div>
-          <div><label for="login-password">Password</label><input id="login-password" type="password" autocomplete="current-password" required /></div>
-          <button class="auth-submit" type="submit">Log in</button>
-        </form>
-      </details>
-    </div>
-
-    <form class="auth-form" id="register-form" onsubmit="submitRegister(event)" hidden>
-      <a class="wa-signup wa-only" id="wa-signup-link" href="#" target="_blank" rel="noopener" hidden>
-        <strong>Easiest: sign up on WhatsApp</strong>
-        <span>Send us "Hi" — you'll be set up in 2 quick questions, no password needed.</span>
-      </a>
-      <div class="row">
-        <div><label for="reg-firstname">First name</label><input id="reg-firstname" autocomplete="given-name" required /></div>
-        <div><label for="reg-lastname">Last name</label><input id="reg-lastname" autocomplete="family-name" required /></div>
-      </div>
-      <div><label for="reg-business">Business name</label><input id="reg-business" autocomplete="organization" required /></div>
-      <div><label for="reg-email">Email</label><input id="reg-email" type="email" autocomplete="email" required /></div>
-      <div><label for="reg-password">Password (8+ characters)</label><input id="reg-password" type="password" autocomplete="new-password" minlength="8" required /></div>
-      <button class="auth-submit" type="submit">Create account</button>
-    </form>
-
-    <div class="auth-error" id="auth-error" role="alert"></div>
-  </div>
-</div>
-
-<div class="layout">
-
-  <!-- Sidebar -->
-  <aside class="sidebar">
-    <div class="logo">
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <div class="logo-icon">&#128210;</div>
-        <div>
-          <div class="logo-text">AI Book-Keeper</div>
-          <div class="logo-sub" id="business-name">Your books, in your own words</div>
-        </div>
-      </div>
-      <button class="mobile-header-toggle" onclick="toggleSidebarMenu()">☰ Menu</button>
-    </div>
-
-    <div class="sidebar-body" id="sidebar-body">
-      <div class="sidebar-section">
-        <label>API Base URL</label>
-        <input id="api-url" type="text" value="" placeholder="(same origin — leave blank)" />
-      </div>
-
-      <div class="sidebar-section">
-        <label>Account</label>
-        <div class="account-name" id="account-name"></div>
-        <div class="account-email" id="account-email"></div>
-        <div class="account-email" id="account-whatsapp"></div>
-        <form class="connect-wa wa-only" id="connect-wa-form" onsubmit="submitConnectWhatsApp(event)" hidden>
-          <input id="connect-wa-phone" type="tel" autocomplete="tel" placeholder="Your WhatsApp number" required />
-          <button class="chip" type="submit">Connect WhatsApp</button>
-        </form>
-        <div class="challenge" id="connect-wa-challenge" hidden></div>
-        <button class="chip" onclick="logout()">Log out</button>
-      </div>
-
-      <div class="sidebar-section">
-        <label>Connection</label>
-        <div style="margin-bottom:8px;">
-          <span class="status-dot" id="status-dot"></span>
-          <span id="status-text">Not checked</span>
-        </div>
-        <button class="chip" onclick="pingServer()">Check connection</button>
-      </div>
-
-      <div class="sidebar-section examples">
-        <div class="example-label">Try these</div>
-        <div class="chip-grid">
-          <button class="chip" onclick="fillPrompt(this)">I sold 20 bags of rice to Ahmed for 150k, he paid 100k</button>
-          <button class="chip" onclick="fillPrompt(this)">Mama Chidi buy 3 crates of egg, 15k, she go pay Friday</button>
-          <button class="chip" onclick="fillPrompt(this)">Ahmed don pay the 50k balance</button>
-          <button class="chip" onclick="fillPrompt(this)">Paid 45,000 for fuel today</button>
-          <button class="chip" onclick="fillPrompt(this)">I borrowed 200k from Emeka to buy stock</button>
-          <button class="chip" onclick="fillPrompt(this)">Who still owes me money?</button>
-          <button class="chip" onclick="fillPrompt(this)">Who I owe?</button>
-          <button class="chip" onclick="fillPrompt(this)">How my business dey this month?</button>
-          <button class="chip" onclick="fillPrompt(this)">Sorry, the fuel was 40k not 45k</button>
-          <button class="chip" onclick="fillPrompt(this)">Cancel that</button>
-        </div>
-      </div>
-
-      <button class="clear-btn" onclick="clearChat()">Clear conversation</button>
-    </div>
-  </aside>
-
-  <!-- Main -->
-  <div class="main">
-    <div class="messages" id="messages">
-      <div class="empty-state" id="empty-state">
-        <div class="empty-icon">&#128210;</div>
-        <div class="empty-title">Wetin happen for shop today?</div>
-        <div class="empty-sub">Tell me what you sold, bought, borrowed or collected — in English or Pidgin. Ask who owes you, or how the business is doing.</div>
-      </div>
-    </div>
-
-    <div class="input-bar">
-      <div class="input-inner">
-        <textarea id="msg-input" rows="1"
-          placeholder="e.g. I sold 50 bags of rice for 200k..."
-          oninput="autoResize(this)"
-          onkeydown="handleKey(event)"></textarea>
-        <button id="send-btn" onclick="sendMessage()" title="Send (Enter)">
-          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-          </svg>
-        </button>
-      </div>
-      <div class="hint">Enter to send &nbsp;&middot;&nbsp; Shift+Enter for new line </div>
+<header class="nav" id="nav">
+  <div class="container nav-inner">
+    <a class="brand" href="/" aria-label="Book-Keeper home">
+      <span class="brand-mark"><svg><use href="#i-logo"/></svg></span>
+      <span class="brand-name">Book<span>-</span>Keeper</span>
+    </a>
+    <nav class="nav-links" id="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#memory">Memory</a>
+      <a href="#agents">The agents</a>
+      <a href="#trust">Trust</a>
+      <a href="#demo">Try it</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-sm" href="/app">Log in</a>
+      <a class="btn btn-primary btn-sm" href="#demo">Try the demo</a>
+      <button class="menu-btn" id="menu-btn" aria-label="Menu" aria-expanded="false">☰</button>
     </div>
   </div>
+</header>
 
-</div>
+<main>
+  <!-- hero -->
+  <section class="hero">
+    <div class="container hero-grid">
+      <div>
+        <span class="eyebrow"><span class="dot"></span> For market traders · English &amp; Pidgin</span>
+        <h1>The bookkeeper that <em>remembers your customers</em>.</h1>
+        <p class="lede">Tell Book-Keeper what happened in your own words, on WhatsApp or the web. It keeps your books,
+          learns who keeps their promises, and tells you who to chase first, and why.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#demo">Try the live demo</a>
+          <a class="btn btn-ghost" href="/app#signup">Create a free account</a>
+        </div>
+        <div class="assurances">
+          <span><svg><use href="#i-check"/></svg> Never touches your money</span>
+          <span><svg><use href="#i-check"/></svg> Works on WhatsApp and the web</span>
+          <span><svg><use href="#i-check"/></svg> Shows its working</span>
+        </div>
+      </div>
+      <div class="phone" aria-label="Example conversation">
+        <div class="phone-screen">
+          <div class="phone-top"><div class="avatar">B</div><div><b>Book-Keeper</b><small>online</small></div></div>
+          <div class="chat">
+            <div class="msg me">Emeka collect 2 bags beans, 60k. He go pay Monday<span class="t">09:12</span></div>
+            <div class="msg bot">Recorded: Emeka, 2 bags beans, <b>₦60,000</b> on credit, due Monday.<span class="t">09:12</span></div>
+            <div class="msg me">who I suppose chase?<span class="t">17:40</span></div>
+            <div class="msg bot"><b>Emeka</b>, ₦36,000
+              <ul><li>promised Sep 24, still no pay</li><li>broken 3 of his 4 promises</li></ul>
+              Skipped <b>Pastor John</b>: you said on Sep 8 not to remind him.<span class="t">17:40</span></div>
+            <div class="msg me">Chidi's mum pay 30k<span class="t">17:42</span></div>
+            <div class="msg bot">Recorded <b>Mama Chidi</b>'s payment of ₦30,000. Her debt is settled.<span class="t">17:42</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- how it works -->
+  <section class="alt" id="how">
+    <div class="container">
+      <div class="section-head">
+        <span class="kicker">How it works</span>
+        <h2>Bookkeeping in the words you already use</h2>
+        <p>No forms, no spreadsheets. Type it, say it in a voice note, or forward a bank alert.</p>
+      </div>
+      <div class="steps">
+        <div class="card step"><div class="step-n">1</div><h3>Say what happened</h3>
+          <p>Sales, purchases, loans, part payments, in English, Pidgin or both.</p>
+          <code>Mama Chidi buy 3 crates of egg, 15k, she pay 10k</code></div>
+        <div class="card step"><div class="step-n">2</div><h3>It keeps the books</h3>
+          <p>Balances, who owes what, due dates and repayments, settled oldest-first like a careful bookkeeper.</p>
+          <code>Recorded: ₦15,000 sale, ₦5,000 still owed</code></div>
+        <div class="card step"><div class="step-n">3</div><h3>Ask anything</h3>
+          <p>Profit this month, who owes you, a statement for one customer, or who to remind today.</p>
+          <code>How my business dey this month?</code></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- memory -->
+  <section id="memory">
+    <div class="container">
+      <div class="section-head">
+        <span class="kicker">Memory</span>
+        <h2>It learns your business, the way a good assistant would</h2>
+        <p>After a month, Book-Keeper needs far less explaining. Everything it remembers came from something you said,
+          and you can always ask why.</p>
+      </div>
+      <div class="features">
+        <div class="card feature"><div class="icon"><svg><use href="#i-people"/></svg></div><h3>Knows who's who</h3>
+          <p>"Chidi's mum", "Mama C" and the bank name OKAFOR CHINYERE MARY are one customer. It asks once, then remembers.</p></div>
+        <div class="card feature"><div class="icon"><svg><use href="#i-handshake"/></svg></div><h3>Remembers promises</h3>
+          <p>Every "I go pay Friday" is tracked. Kept, broken, or asked for more time: it's on record.</p></div>
+        <div class="card feature"><div class="icon"><svg><use href="#i-bag"/></svg></div><h3>Knows "the usual"</h3>
+          <p>Three identical orders and it knows Bola's usual: 2 bags of rice, cash. It still confirms before recording.</p></div>
+        <div class="card feature"><div class="icon"><svg><use href="#i-bell-off"/></svg></div><h3>Respects your wishes</h3>
+          <p>Say "no remind Pastor John" once. He's left off the chase list, and reminders to him are blocked until you say otherwise.</p></div>
+        <div class="card feature"><div class="icon"><svg><use href="#i-bank"/></svg></div><h3>Matches bank alerts</h3>
+          <p>Forward an alert and it knows whose payment it is, even when the bank name looks nothing like the nickname you use.</p></div>
+        <div class="card feature"><div class="icon"><svg><use href="#i-search"/></svg></div><h3>Shows its working</h3>
+          <p>Ask "why Emeka first?" and it shows each promise, its outcome, and the message you sent it in.</p></div>
+      </div>
+
+      <div class="section-head" style="margin-top:64px">
+        <h2 style="font-size:28px">Same books. Day 1 vs day 30.</h2>
+        <p>Both demo accounts below hold the identical ledger. Only one has a month of memory.</p>
+      </div>
+      <div class="card compare">
+        <table>
+          <thead><tr><th>You say</th><th>Day 1</th><th class="d30">Day 30</th></tr></thead>
+          <tbody>
+            <tr><td>"Who I suppose chase?"</td><td class="d1">A list by amount, Pastor John included</td>
+                <td class="d30">Emeka first: broken 3 of 4 promises. Pastor John skipped: "you said not to remind him"</td></tr>
+            <tr><td>"Bola come, I give am the usual"</td><td class="d1">"What did Bola buy?"</td>
+                <td class="d30">"2 bags rice, ₦90,000, paid cash?"</td></tr>
+            <tr><td>Alert from OKAFOR CHINYERE MARY</td><td class="d1">"Whose payment is this?"</td>
+                <td class="d30">Recorded as Mama Chidi's payment</td></tr>
+            <tr><td>"Chidi's mum take 1 bag rice"</td><td class="d1">"Chidi or Mama Chidi?"</td>
+                <td class="d30">Recorded under Mama Chidi</td></tr>
+            <tr><td>"Remind Pastor John"</td><td class="d1">Goes straight to drafting</td>
+                <td class="d30">"You told me not to remind him. Still send?"</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- agents -->
+  <section class="dark" id="agents">
+    <div class="container">
+      <div class="section-head">
+        <span class="kicker">Under the hood</span>
+        <h2 style="color:#fff">A small team of agents, one shared memory</h2>
+        <p>Each agent does one job. They never pass notes to each other: what one learns, the others read from a shared
+          memory graph on the next message.</p>
+      </div>
+      <div class="agents">
+        <div class="agent"><span class="role">Books</span><h3>Recorder</h3>
+          <p>Turns your messages into ledger entries, corrections and reports. Asks when a name could be two people.</p></div>
+        <div class="agent"><span class="role">Debts</span><h3>Collector</h3>
+          <p>Settles promises as their dates pass, ranks who to chase with reasons, drafts reminders you approve.</p></div>
+        <div class="agent"><span class="role">Bank alerts</span><h3>Alert matcher</h3>
+          <p>Reads forwarded alerts, flags fake "transfer successful" screens, learns which bank name is which customer.</p></div>
+        <div class="agent"><span class="role">Memory</span><h3>Memory curator</h3>
+          <p>After every reply, decides what's worth remembering. Proposals are checked by code before anything is saved.</p></div>
+      </div>
+      <div class="graph-note">
+        <svg><use href="#i-graph"/></svg>
+        <p><b>Graph memory on FalkorDB.</b> People, promises, nicknames, habits and reminders are connected, timestamped
+          and traced to the message they came from. Your money stays in the ledger; the graph holds what the agents know.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- features -->
+  <section class="alt">
+    <div class="container">
+      <div class="section-head center">
+        <span class="kicker">Everything a small business needs</span>
+        <h2>From the first sale to the end-of-month report</h2>
+      </div>
+      <div class="features">
+        <div class="card feature"><div class="icon"><svg><use href="#i-handshake"/></svg></div><h3>Credit, part payments, loans</h3>
+          <p>Partial payments, balances, money lent and borrowed, settled oldest-first.</p></div>
+        <div class="card feature"><div class="icon"><svg><use href="#i-chart"/></svg></div><h3>Reports</h3>
+          <p>Profit and loss, spending, who owes you and who you owe, for any period.</p></div>
+        <div class="card feature"><div class="icon"><svg><use href="#i-doc"/></svg></div><h3>Customer statements</h3>
+          <p>A private link to one customer's statement, ready to forward. Expires in 30 days.</p></div>
+        <div class="card feature"><div class="icon"><svg><use href="#i-mic"/></svg></div><h3>Voice notes</h3>
+          <p>Speak instead of typing. If a name or amount sounds unclear, it asks.</p></div>
+        <div class="card feature"><div class="icon"><svg><use href="#i-undo"/></svg></div><h3>Fix anything</h3>
+          <p>"Cancel that", "it was 45k not 50k", "na Tunde, no be Tayo". Balances stay right.</p></div>
+        <div class="card feature"><div class="icon"><svg><use href="#i-bank"/></svg></div><h3>Bank and POS alerts</h3>
+          <p>Forward the alert or a screenshot; a clear repayment is recorded, anything unclear becomes a question.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- trust -->
+  <section id="trust">
+    <div class="container">
+      <div class="section-head">
+        <span class="kicker">Trust</span>
+        <h2>Built to be safe with your business and your customers</h2>
+      </div>
+      <div class="trust">
+        <div class="card item"><svg><use href="#i-no-money"/></svg><div><h3>It never touches money</h3>
+          <p>Book-Keeper only keeps records, reports and reminders. No payments, no transfers, no payment links, and it will
+            never ask for your PIN, OTP, BVN or bank login.</p></div></div>
+        <div class="card item"><svg><use href="#i-shield"/></svg><div><h3>You approve every reminder</h3>
+          <p>Reminders are drafted, shown to you, and only sent after your yes. Customers can reply STOP, and there are daily
+            limits and cooldowns.</p></div></div>
+        <div class="card item"><svg><use href="#i-search"/></svg><div><h3>Every memory is traceable</h3>
+          <p>Each thing it remembers links to the message you sent and the agent that saved it. Wrong? Say so and it's corrected.</p></div></div>
+        <div class="card item"><svg><use href="#i-people"/></svg><div><h3>Your books stay yours</h3>
+          <p>Each business has its own separate memory. Customer statement links are private, expire, and can be withdrawn.</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- demo -->
+  <section class="alt" id="demo">
+    <div class="container">
+      <div class="section-head">
+        <span class="kicker">Try it now</span>
+        <h2>Open the demo shop, or start your own</h2>
+        <p>Ngozi Provisions sells rice, beans, garri and palm oil. Its month of trading is made-up data, recorded through
+          the real product.</p>
+      </div>
+      <div class="card demo-box">
+        <div>
+          <div class="demo-accounts" id="demo-accounts">
+            <div class="demo-account"><b>Create your own account</b>
+              <p>Free, in under a minute. Start typing what you sold today.</p>
+              <a class="btn btn-primary" href="/app#signup">Create an account</a></div>
+          </div>
+          <p class="muted" id="demo-error" style="margin-top:12px;color:var(--red-600)" hidden></p>
+        </div>
+        <div>
+          <b>Things to try</b>
+          <ul class="try-list">
+            <li>who I suppose chase?</li>
+            <li>why Emeka first?</li>
+            <li>Bola come, I give am the usual</li>
+            <li>Chidi's mum take 1 bag rice, 45k, she go pay Monday</li>
+            <li>remind Pastor John</li>
+            <li>How my business dey for September?</li>
+          </ul>
+          <p class="muted" style="margin-top:14px;font-size:14px">Open both accounts, one in a private window, and send the same
+            messages to see what memory changes. The People tab shows what each remembers.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- faq -->
+  <section>
+    <div class="container">
+      <div class="section-head center"><span class="kicker">Questions</span><h2>Good to know</h2></div>
+      <div class="faq">
+        <details><summary>Does Book-Keeper handle my money?</summary>
+          <p>No. It only keeps records, produces reports and drafts reminders. Payments always happen directly between you and
+            your customers.</p></details>
+        <details><summary>Do I need WhatsApp?</summary>
+          <p>No. The web app does everything. WhatsApp is there for traders who'd rather not open a browser, and both share
+            the same books and memory.</p></details>
+        <details><summary>What if it gets something wrong?</summary>
+          <p>Say "cancel that" or tell it the right amount or name. When a name could be two people or an amount is missing,
+            it asks instead of guessing. It never records an amount you didn't give.</p></details>
+        <details><summary>How does the memory work?</summary>
+          <p>Each business has its own memory graph on FalkorDB. The agents read it before replying and a curator adds to it
+            after, with every memory linked to the message it came from. The People tab in the app shows it all.</p></details>
+        <details><summary>What languages does it understand?</summary>
+          <p>English, Nigerian Pidgin and a mix of both, with shorthand like "5k", "2m", "balance" and "on credit". Voice notes
+            work too.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="dark cta-band">
+    <div class="container">
+      <h2 style="color:#fff">Your books, in your own words</h2>
+      <p>Start with today's sales. Book-Keeper takes it from there.</p>
+      <div class="hero-actions" style="justify-content:center">
+        <a class="btn btn-accent" href="#demo">Try the live demo</a>
+        <a class="btn btn-ghost" style="color:#fff;border-color:rgba(255,255,255,.35)" href="/app#signup">Create an account</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="container footer-inner">
+    <a class="brand" href="/"><span class="brand-mark"><svg><use href="#i-logo"/></svg></span>
+      <span class="brand-name">Book<span>-</span>Keeper</span></a>
+    <span>Built for Graph Hacks 2026 · Graph memory on FalkorDB · Book-Keeper never sends or receives money.</span>
+  </div>
+</footer>
 
 <script>
-  function getApiUrl() { return document.getElementById('api-url').value.replace(/\/$/, ''); }
-  // Being logged in is an httpOnly session cookie: the page never sees it, the browser
-  // just sends it along. A 401 means the session ended, so show the login screen.
-  async function apiFetch(path, options = {}) {
-    const res = await fetch(getApiUrl() + path, { ...options, credentials: 'include' });
-    if (res.status === 401) showAuth('Your session has ended. Please log in again.');
-    return res;
-  }
+  // nav: border on scroll, mobile menu
+  const nav = document.getElementById('nav');
+  addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 8), { passive: true });
+  const menuBtn = document.getElementById('menu-btn'), links = document.getElementById('nav-links');
+  menuBtn.addEventListener('click', () => {
+    const open = links.classList.toggle('open');
+    menuBtn.setAttribute('aria-expanded', open);
+  });
+  links.querySelectorAll('a').forEach(a => a.addEventListener('click', () => links.classList.remove('open')));
 
-  function showAuth(message = '') {
-    document.getElementById('auth-error').textContent = message;
-    document.getElementById('auth-overlay').hidden = false;
-  }
-
-  function showAuthTab(which) {
-    document.getElementById('login-panel').hidden = which !== 'login';
-    document.getElementById('register-form').hidden = which !== 'register';
-    document.getElementById('tab-login').classList.toggle('active', which === 'login');
-    document.getElementById('tab-register').classList.toggle('active', which === 'register');
-    document.getElementById('auth-error').textContent = '';
-  }
-
-  function errorText(detail, fallback) {
-    // FastAPI validation errors come back as a list of {msg, loc}
-    if (Array.isArray(detail)) return detail.map(d => d.msg.replace(/^Value error, /, '')).join(' ');
-    return detail || fallback;
-  }
-
-  async function submitAuth(event, path, body) {
-    event.preventDefault();
-    const button = event.target.querySelector('.auth-submit');
-    button.disabled = true;
-    document.getElementById('auth-error').textContent = '';
-    try {
-      const res = await fetch(getApiUrl() + path, {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        document.getElementById('auth-error').textContent = errorText(data.detail, 'Something went wrong. Please try again.');
-        return;
-      }
-      await enterApp();
-    } catch {
-      document.getElementById('auth-error').textContent = 'Could not reach the server.';
-    } finally {
-      button.disabled = false;
-    }
-  }
-
-  function submitLogin(event) {
-    return submitAuth(event, '/login', {
-      email: document.getElementById('login-email').value.trim(),
-      password: document.getElementById('login-password').value,
-    });
-  }
-
-  function submitRegister(event) {
-    return submitAuth(event, '/register', {
-      firstname: document.getElementById('reg-firstname').value.trim(),
-      lastname: document.getElementById('reg-lastname').value.trim(),
-      business_name: document.getElementById('reg-business').value.trim(),
-      email: document.getElementById('reg-email').value.trim(),
-      password: document.getElementById('reg-password').value,
-    });
-  }
-
-  // ── WhatsApp: log in / connect by sending a code from the phone ─────────────
-  let whatsappInfo = { enabled: false };
-  let challengeRun = 0;  // bumping this stops any older challenge's polling
-
-  async function loadWhatsAppInfo() {
-    try {
-      const res = await fetch(getApiUrl() + '/auth/whatsapp/info');
-      if (res.ok) whatsappInfo = await res.json();
-    } catch { /* WhatsApp options just stay hidden */ }
-    document.querySelectorAll('.wa-only').forEach(el => { el.hidden = !whatsappInfo.enabled; });
-    if (whatsappInfo.signup_link) document.getElementById('wa-signup-link').href = whatsappInfo.signup_link;
-    // without WhatsApp, email is the only way in
-    document.getElementById('email-login').open = !whatsappInfo.enabled;
-  }
-
-  function el(tag, className, text) {
-    const node = document.createElement(tag);
-    if (className) node.className = className;
-    if (text !== undefined) node.textContent = text;
-    return node;
-  }
-
-  // Start a code challenge and show it in `panel`; poll until it's approved, refused or expired.
-  async function runChallenge(panel, form, startPath, phone, useAuth, onApproved) {
-    const run = ++challengeRun;
-    const fetcher = useAuth ? apiFetch : (path, opts) => fetch(getApiUrl() + path, { credentials: 'include', ...opts });
-    const res = await fetcher(startPath, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone }),
-    });
-    const data = await res.json().catch(() => ({}));
-    panel.replaceChildren();
-    panel.hidden = false;
-    const again = () => { panel.hidden = true; form.hidden = false; };
-    if (!res.ok) {
-      panel.append(el('div', 'problem', errorText(data.detail, 'Something went wrong. Please try again.')));
-      const retry = el('button', 'linkish', 'Try again'); retry.type = 'button'; retry.onclick = again;
-      panel.append(retry);
-      return;
-    }
-    form.hidden = true;
-    panel.append(el('div', '', 'Send this message to Book-Keeper on WhatsApp, from ' + phone + ':'));
-    panel.append(el('div', 'code-box', data.message));
-    if (data.whatsapp_link) {
-      const open = el('a', 'wa-button', 'Open WhatsApp');
-      open.href = data.whatsapp_link; open.target = '_blank'; open.rel = 'noopener';
-      panel.append(open);
-    }
-    const status = el('div', 'waiting', 'Waiting for your message…');
-    panel.append(status);
-    const other = el('button', 'linkish', 'Use a different number'); other.type = 'button';
-    other.onclick = () => { challengeRun++; again(); };
-    panel.append(other);
-
-    const deadline = Date.now() + (data.expires_in || 600) * 1000;
-    while (run === challengeRun && Date.now() < deadline) {
-      await new Promise(r => setTimeout(r, 2000));
-      if (run !== challengeRun) return;
-      const poll = await fetch(getApiUrl() + '/auth/whatsapp/challenges/' + encodeURIComponent(data.challenge_id),
-                               { method: 'POST', credentials: 'include' }).catch(() => null);
-      if (!poll || !poll.ok) continue;
-      const result = await poll.json();
-      if (result.status === 'approved') { panel.hidden = true; form.hidden = false; await onApproved(result); return; }
-      if (result.status === 'rejected' || result.status === 'expired') {
-        status.className = 'problem';
-        status.textContent = result.message || 'That code has expired. Please get a new one.';
-        return;
-      }
-    }
-    if (run === challengeRun) { status.className = 'problem'; status.textContent = 'That code has expired. Please get a new one.'; }
-  }
-
-  function submitWhatsAppLogin(event) {
-    event.preventDefault();
-    document.getElementById('auth-error').textContent = '';
-    return runChallenge(document.getElementById('wa-login-challenge'), document.getElementById('wa-login-form'),
-      '/auth/whatsapp/login', document.getElementById('wa-login-phone').value.trim(), false,
-      async () => { await enterApp(); });
-  }
-
-  function submitConnectWhatsApp(event) {
-    event.preventDefault();
-    return runChallenge(document.getElementById('connect-wa-challenge'), document.getElementById('connect-wa-form'),
-      '/auth/whatsapp/link', document.getElementById('connect-wa-phone').value.trim(), true,
-      async () => { await enterApp(); });
-  }
-
-  function localPhone(e164) {
-    // +2348031234567 → 0803 123 4567
-    const d = '0' + e164.replace(/^\+234/, '');
-    return d.slice(0, 4) + ' ' + d.slice(4, 7) + ' ' + d.slice(7);
-  }
-
-  async function enterApp() {
-    const res = await apiFetch('/api/v1/me');
-    if (!res.ok) { showAuth(); return; }
-    const me = await res.json();
-    document.getElementById('account-name').textContent = (me.firstname + ' ' + (me.lastname || '')).trim();
-    document.getElementById('account-email').textContent = me.email || '';
-    document.getElementById('account-whatsapp').textContent = me.phone ? 'WhatsApp: ' + localPhone(me.phone) + ' ✓' : '';
-    document.getElementById('connect-wa-form').hidden = !whatsappInfo.enabled || !!me.phone;
-    document.getElementById('business-name').textContent = me.business_name || 'Your books, in your own words';
-    document.getElementById('auth-overlay').hidden = true;
-    document.getElementById('msg-input').focus();
-  }
-
-  async function logout() {
-    await fetch(getApiUrl() + '/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
-    clearChat();
-    showAuthTab('login');
-    showAuth();
-  }
-  function now()       { return new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
-  function uid()       { return Math.random().toString(36).slice(2); }
-
-  function autoResize(el) {
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
-  }
-
-  function handleKey(e) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-  }
-
-  function fillPrompt(btn) {
-    const input = document.getElementById('msg-input');
-    input.value = btn.textContent.trim();
-    autoResize(input);
-    input.focus();
-  }
-
-  function clearChat() {
-    const box = document.getElementById('messages');
-    box.innerHTML = `
-      <div class="empty-state" id="empty-state">
-        <div class="empty-icon">&#128210;</div>
-        <div class="empty-title">Wetin happen for shop today?</div>
-        <div class="empty-sub">Tell me what you sold, bought, borrowed or collected — in English or Pidgin. Ask who owes you, or how the business is doing.</div>
-      </div>`;
-  }
-
-  function scrollBottom() {
-    const box = document.getElementById('messages');
-    box.scrollTop = box.scrollHeight;
-  }
-
-  function hideEmpty() {
-    const e = document.getElementById('empty-state');
-    if (e) e.remove();
-  }
-
-  function escHtml(str) {
-    return String(str)
-      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
-  function addBubble(role, text) {
-    hideEmpty();
-    const box = document.getElementById('messages');
-    const isUser = role === 'user';
-    const row = document.createElement('div');
-    row.className = 'bubble-row ' + role;
-    row.innerHTML = `
-      <div class="avatar">${isUser ? 'U' : '&#128210;'}</div>
-      <div>
-        <div class="bubble">${escHtml(text)}</div>
-        <div class="bubble-meta">${now()}</div>
-      </div>`;
-    box.appendChild(row);
-    scrollBottom();
-    return row;
-  }
-
-  function addTyping() {
-    hideEmpty();
-    const box = document.getElementById('messages');
-    const row = document.createElement('div');
-    row.className = 'bubble-row ai typing';
-    row.id = 'typing-indicator';
-    row.innerHTML = `
-      <div class="avatar">&#128210;</div>
-      <div><div class="bubble"><div class="dots"><span></span><span></span><span></span></div></div></div>`;
-    box.appendChild(row);
-    scrollBottom();
-  }
-
-  function removeTyping() {
-    const t = document.getElementById('typing-indicator');
-    if (t) t.remove();
-  }
-
-  function addClarifyCard(clarifications) {
-    const box = document.getElementById('messages');
-    clarifications.forEach(c => {
+  // demo accounts, when this server offers them
+  async function loadDemo() {
+    let info;
+    try { info = await (await fetch('/demo/info')).json(); } catch { return; }
+    if (!info.enabled) return;
+    const box = document.getElementById('demo-accounts');
+    info.accounts.slice().reverse().forEach(a => {
       const card = document.createElement('div');
-      card.className = 'bubble-row ai';
-      card.innerHTML = `
-        <div class="avatar">&#128210;</div>
-        <div>
-          <div class="clarify-card" id="clarify-${c.transaction_id}">
-            <div class="clarify-title">&#9889; Amount needed</div>
-            <div class="clarify-msg">${escHtml(c.message)}</div>
-            <div class="clarify-row">
-              <input type="number" placeholder="Enter amount" id="clarify-input-${c.transaction_id}" min="0" step="0.01" />
-              <button class="clarify-submit" onclick="submitClarify(${c.transaction_id})">Submit</button>
-            </div>
-          </div>
-        </div>`;
-      box.appendChild(card);
+      card.className = 'demo-account';
+      const title = document.createElement('b'); title.textContent = a.label;
+      const about = document.createElement('p'); about.textContent = a.about;
+      const btn = document.createElement('button');
+      btn.className = a.id === 'day30' ? 'btn btn-primary' : 'btn btn-ghost';
+      btn.textContent = a.id === 'day30' ? 'Open the day-30 shop' : 'Open the day-1 shop';
+      btn.onclick = () => demoLogin(a.id, btn);
+      card.append(title, about, btn);
+      box.prepend(card);
     });
-    scrollBottom();
   }
-
-  function showToast(msg) {
-    const existing = document.querySelector('.toast');
-    if (existing) existing.remove();
-    const t = document.createElement('div');
-    t.className = 'toast';
-    t.textContent = msg;
-    document.body.appendChild(t);
-    setTimeout(() => t.remove(), 5000);
-  }
-
-  async function pingServer() {
-    const dot  = document.getElementById('status-dot');
-    const text = document.getElementById('status-text');
-    dot.className = 'status-dot';
-    text.textContent = 'Checking...';
-    try {
-      await fetch(getApiUrl() + '/docs', { method: 'HEAD', signal: AbortSignal.timeout(4000) });
-      dot.className = 'status-dot ok';
-      text.textContent = 'Connected';
-    } catch {
-      dot.className = 'status-dot err';
-      text.textContent = 'Unreachable';
-    }
-  }
-
-  async function sendMessage() {
-    const input = document.getElementById('msg-input');
-    const text  = input.value.trim();
-    if (!text) return;
-
-    const btn = document.getElementById('send-btn');
+  async function demoLogin(account, btn) {
     btn.disabled = true;
-    input.value  = '';
-    autoResize(input);
-
-    addBubble('user', text);
-    addTyping();
-
+    const err = document.getElementById('demo-error');
+    err.hidden = true;
     try {
-      const res = await apiFetch('/api/v1/message', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': uid() },
-        body: JSON.stringify({ message: text }),
-        signal: AbortSignal.timeout(30000),
-      });
-
-      removeTyping();
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }));
-        addBubble('ai', 'Error ' + res.status + ': ' + (err.detail || res.statusText));
-      } else {
-        const data = await res.json();
-        addBubble('ai', data.reply);
-        if (data.clarifications && data.clarifications.length > 0) {
-          addClarifyCard(data.clarifications);
-        }
-      }
-    } catch (err) {
-      removeTyping();
-      if (err.name === 'TimeoutError') {
-        addBubble('ai', 'Request timed out — is the server running?');
-      } else {
-        addBubble('ai', 'Could not reach the API: ' + err.message);
-      }
-    }
-
-    btn.disabled = false;
-    input.focus();
-  }
-
-  async function submitClarify(transactionId) {
-    const input  = document.getElementById('clarify-input-' + transactionId);
-    const amount = parseFloat(input.value);
-    if (isNaN(amount) || amount <= 0) { showToast('Please enter a valid amount.'); return; }
-
-    const card = document.getElementById('clarify-' + transactionId);
-    card.style.opacity = '0.5';
-    card.style.pointerEvents = 'none';
-
-    try {
-      const res = await apiFetch('/api/v1/clarify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transaction_id: transactionId, amount }),
-        signal: AbortSignal.timeout(10000),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }));
-        showToast('Clarify failed: ' + (err.detail || res.statusText));
-        card.style.opacity = '1';
-        card.style.pointerEvents = '';
-      } else {
-        const data = await res.json();
-        card.closest('.bubble-row').remove();
-        addBubble('ai', data.reply);
-      }
-    } catch (err) {
-      showToast('Error: ' + err.message);
-      card.style.opacity = '1';
-      card.style.pointerEvents = '';
+      const res = await fetch('/demo/login', { method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account }) });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Could not open the demo.');
+      location.href = '/app';
+    } catch (e) {
+      err.textContent = e.message; err.hidden = false; btn.disabled = false;
     }
   }
-
-  function toggleSidebarMenu() {
-    const body = document.getElementById('sidebar-body');
-    if (body) body.classList.toggle('open');
-  }
-
-  // show WhatsApp options if the server has WhatsApp set up, then carry on with the
-  // existing session if there is one (enterApp shows the login screen if not)
-  loadWhatsAppInfo().then(() => enterApp());
+  loadDemo();
 </script>
 </body>
 </html>

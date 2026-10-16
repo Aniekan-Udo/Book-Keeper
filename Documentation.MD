@@ -447,6 +447,7 @@ fact traceable to the message it came from.
 | 1 (Oct 15) | FalkorDB in compose; the GraphMemory port and FalkorDB adapter; ledger → graph sync; `rebuild_graph` |
 | 2 (Oct 15) | Three agents (Recorder, Collector, Alert matcher) on a LangGraph StateGraph with plain-code routing; recall (memory in every prompt); the Memory curator; promises, aliases, usual orders, do-not-remind, stated roles; two code-enforced guards found in live runs |
 | 3 (Oct 15) | Collector: overdue promises settled (broken/kept), "who to chase" ranked by code with reasons, do-not-remind enforced in the reminder tool, sent reminders in the graph with BECAUSE links; Alert matcher learns and uses bank names; the "why?" tool. Graphiti stretch goal not taken: the time went into live-run fixes |
+| 5 (Oct 16) | Web app for judges: landing page (`/`), the app (`/app`) with Chat, Overview, Who to chase, People & memory (provenance per memory), read-only views in `endpoints/dashboard.py`, one-click demo login (`DEMO_ACCOUNTS`) |
 | 4 (Oct 15) | Demo: `seed_demo` (the 30-day scenario through the real code, two accounts), `demo_check` (side by side); README for the submission; hardening from the rehearsal (turn timeout, model-slip retry, graph keepalive and read retries) |
 
 ### 9.1 Architecture
@@ -768,6 +769,24 @@ provider outages: in the rehearsal, these slips had tripped it.
 spell, pooled connections had been dropped silently and every read timed out. Now: TCP
 keepalive, a health check on connections idle 30 s, a 5 s timeout, and read-only queries
 through `GRAPH.RO_QUERY`, retried once. Writes are still never retried by the driver (D10).
+
+**D40. A web app that shows the memory, at no token cost.** WhatsApp can't be demoed to
+judges right now, so the web app is the product's front door. Its Overview, Who to chase
+and People & memory pages are plain code over Postgres and the graph
+(`endpoints/dashboard.py`): no model calls, so exploring costs nothing and always shows the
+same thing. People & memory turns the graph's provenance into something a person can read:
+"you said this on 2 Sept · saved by the curator · outcome by the collector on 8 Sept".
+*Trade-off:* more endpoints to keep in step with the memory model; they reuse the same
+recall, Collector and explain code the agents use, so there's one source of truth.
+
+**D41. Demo login is opt-in per server.** `/demo/login` only exists when
+`DEMO_ACCOUNTS=true`, only logs into the two seeded demo accounts (made-up data), and is
+rate limited. Production leaves it off.
+
+**D42. No build step for the frontend.** Plain HTML, CSS and JavaScript served by FastAPI:
+nothing to install or compile, and the same container serves it. Assistant replies are
+escaped and only bold, bullets and line breaks are added back, so a reply can't inject
+HTML.
 
 ### 9.5 Error handling
 

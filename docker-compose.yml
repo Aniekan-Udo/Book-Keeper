@@ -58,6 +58,7 @@ services:
       LLM_MODEL: ${LLM_MODEL:-groq:openai/gpt-oss-120b}
       CURATOR_MODEL: ${CURATOR_MODEL:-}
       LLM_TURN_TIMEOUT: ${LLM_TURN_TIMEOUT:-90}
+      DEMO_ACCOUNTS: ${DEMO_ACCOUNTS:-false}
       VISION_MODEL: ${VISION_MODEL:-groq:qwen/qwen3.8-27b}
       TRANSCRIPTION_MODEL: ${TRANSCRIPTION_MODEL:-groq:whisper-large-v3}
       GROQ_API_KEY: ${GROQ_API_KEY:-}

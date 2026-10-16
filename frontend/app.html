@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Book-Keeper</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/assets/base.css" />
+  <link rel="stylesheet" href="/static/assets/app.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23146349'/%3E%3Cpath d='M9 8h10a4 4 0 0 1 4 4v12H13a4 4 0 0 1-4-4z' fill='none' stroke='white' stroke-width='2.2'/%3E%3Cpath d='M13 13h6M13 17h4' stroke='%23e8a325' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E" />
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-logo" viewBox="0 0 24 24"><path d="M5 4h10a4 4 0 0 1 4 4v12H9a4 4 0 0 1-4-4z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6M9 13h4" stroke="#e8a325" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="4" width="7" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="4" y="13" width="7" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="13" width="7" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="1" fill="currentColor"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 20c.6-3.4 3-5.5 6-5.5s5.4 2.1 6 5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="17" cy="9" r="2.4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16.5 14.6c2.4.2 4 1.9 4.5 4.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M3 20 21 12 3 4l2.5 8zM5.5 12H12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+  <symbol id="i-graph" viewBox="0 0 24 24"><circle cx="5" cy="6" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="19" cy="7" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="18" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="10" r="2" fill="currentColor"/><path d="M7 7l3.3 2M16.8 7.7 13.8 9.4M12 12v3.6" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<!-- ── sign in ───────────────────────────────────────────────────────────── -->
+<div class="auth" id="auth" hidden>
+  <div class="auth-card card">
+    <a class="brand" href="/"><span class="brand-mark"><svg><use href="#i-logo"/></svg></span>
+      <span class="brand-name">Book<span>-</span>Keeper</span></a>
+    <p class="auth-sub">Your books, in your own words.</p>
+
+    <div class="demo-quick" id="demo-quick" hidden>
+      <div class="demo-quick-title">Judging or just looking? Open the demo shop</div>
+      <div class="demo-quick-buttons" id="demo-quick-buttons"></div>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab active" id="tab-login" role="tab" onclick="showAuthTab('login')">Log in</button>
+      <button class="tab" id="tab-register" role="tab" onclick="showAuthTab('register')">Create account</button>
+    </div>
+
+    <div id="login-panel">
+      <form class="auth-form wa-only" id="wa-login-form" onsubmit="submitWhatsAppLogin(event)" hidden>
+        <div class="field"><label for="wa-login-phone">Your WhatsApp number</label>
+          <input class="input" id="wa-login-phone" type="tel" autocomplete="tel" placeholder="0803 123 4567" required /></div>
+        <button class="btn btn-primary btn-block auth-submit" type="submit">Log in with WhatsApp</button>
+      </form>
+      <div class="challenge" id="wa-login-challenge" hidden></div>
+      <details class="alt-login" id="email-login">
+        <summary>Log in with email</summary>
+        <form class="auth-form" id="login-form" onsubmit="submitLogin(event)">
+          <div class="field"><label for="login-email">Email</label>
+            <input class="input" id="login-email" type="email" autocomplete="email" required /></div>
+          <div class="field"><label for="login-password">Password</label>
+            <input class="input" id="login-password" type="password" autocomplete="current-password" required /></div>
+          <button class="btn btn-primary btn-block auth-submit" type="submit">Log in</button>
+        </form>
+      </details>
+    </div>
+
+    <form class="auth-form" id="register-form" onsubmit="submitRegister(event)" hidden>
+      <a class="wa-signup wa-only" id="wa-signup-link" href="#" target="_blank" rel="noopener" hidden>
+        <strong>Easiest: sign up on WhatsApp</strong>
+        <span>Send us "Hi". You'll be set up in 2 quick questions, no password needed.</span>
+      </a>
+      <div class="row">
+        <div class="field"><label for="reg-firstname">First name</label><input class="input" id="reg-firstname" autocomplete="given-name" required /></div>
+        <div class="field"><label for="reg-lastname">Last name</label><input class="input" id="reg-lastname" autocomplete="family-name" required /></div>
+      </div>
+      <div class="field"><label for="reg-business">Business name</label><input class="input" id="reg-business" autocomplete="organization" required /></div>
+      <div class="field"><label for="reg-email">Email</label><input class="input" id="reg-email" type="email" autocomplete="email" required /></div>
+      <div class="field"><label for="reg-password">Password (8+ characters)</label><input class="input" id="reg-password" type="password" autocomplete="new-password" minlength="8" required /></div>
+      <button class="btn btn-primary btn-block auth-submit" type="submit">Create account</button>
+    </form>
+
+    <div class="auth-error" id="auth-error" role="alert"></div>
+    <p class="auth-foot">Book-Keeper keeps records only. It never sends or receives money, and never asks for your PIN, OTP or BVN.</p>
+  </div>
+</div>
+
+<!-- ── app ───────────────────────────────────────────────────────────────── -->
+<div class="shell" id="shell" hidden>
+  <header class="topbar">
+    <a class="brand" href="/"><span class="brand-mark"><svg><use href="#i-logo"/></svg></span>
+      <span class="brand-name">Book<span>-</span>Keeper</span></a>
+    <div class="biz" id="biz-name"></div>
+    <div class="topbar-right">
+      <span class="pill" id="memory-pill" title="Graph memory status"><svg class="pill-icon"><use href="#i-graph"/></svg> Memory</span>
+      <div class="account">
+        <button class="avatar-btn" id="account-btn" aria-haspopup="true" aria-expanded="false"></button>
+        <div class="menu card" id="account-menu" hidden>
+          <div class="menu-name" id="account-name"></div>
+          <div class="menu-sub" id="account-email"></div>
+          <div class="menu-sub" id="account-whatsapp"></div>
+          <form class="connect-wa wa-only" id="connect-wa-form" onsubmit="submitConnectWhatsApp(event)" hidden>
+            <input class="input" id="connect-wa-phone" type="tel" autocomplete="tel" placeholder="Your WhatsApp number" required />
+            <button class="btn btn-ghost btn-sm" type="submit">Connect WhatsApp</button>
+          </form>
+          <div class="challenge" id="connect-wa-challenge" hidden></div>
+          <hr />
+          <button class="menu-item" onclick="logout()">Log out</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <nav class="sidenav" aria-label="Sections">
+    <button class="navbtn active" data-view="chat"><svg><use href="#i-chat"/></svg><span>Chat</span></button>
+    <button class="navbtn" data-view="overview"><svg><use href="#i-grid"/></svg><span>Overview</span></button>
+    <button class="navbtn" data-view="chase"><svg><use href="#i-target"/></svg><span>Who to chase</span></button>
+    <button class="navbtn" data-view="people"><svg><use href="#i-people"/></svg><span>People &amp; memory</span></button>
+  </nav>
+
+  <main class="content">
+    <!-- chat -->
+    <section class="view view-chat active" id="view-chat">
+      <div class="messages" id="messages"></div>
+      <div class="composer">
+        <div class="suggestions" id="suggestions"></div>
+        <div class="composer-box">
+          <textarea id="msg-input" rows="1" placeholder="Tell me what happened… e.g. I sold 5 bags of rice for 225k"
+                    oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
+          <button class="send" id="send-btn" onclick="sendMessage()" title="Send (Enter)" aria-label="Send"><svg><use href="#i-send"/></svg></button>
+        </div>
+        <div class="composer-hint">Enter to send · Shift+Enter for a new line · English or Pidgin</div>
+      </div>
+    </section>
+
+    <!-- overview -->
+    <section class="view view-pad" id="view-overview">
+      <div class="view-head">
+        <div><h1>Overview</h1><p class="muted" id="ov-period-label"></p></div>
+        <div class="seg" id="ov-period">
+          <button data-period="month">This month</button>
+          <button data-period="last_month">Last month</button>
+          <button data-period="all" class="active">All time</button>
+        </div>
+      </div>
+      <div class="kpis" id="ov-kpis"></div>
+      <div class="grid-2">
+        <div class="card panel"><div class="panel-head"><h2>Owed to you</h2><span class="muted" id="ov-owed-total"></span></div><div id="ov-owed"></div></div>
+        <div class="card panel"><div class="panel-head"><h2>You owe</h2><span class="muted" id="ov-owe-total"></span></div><div id="ov-owe"></div></div>
+      </div>
+      <div class="card panel"><div class="panel-head"><h2>Recent entries</h2></div><div class="table-wrap"><table class="table" id="ov-recent"></table></div></div>
+    </section>
+
+    <!-- chase -->
+    <section class="view view-pad" id="view-chase">
+      <div class="view-head">
+        <div><h1>Who to chase</h1><p class="muted" id="chase-rule"></p></div>
+        <button class="btn btn-ghost btn-sm" onclick="loadChase()"><svg class="btn-icon"><use href="#i-refresh"/></svg> Refresh</button>
+      </div>
+      <div id="chase-list" class="stack"></div>
+      <div id="chase-skipped"></div>
+    </section>
+
+    <!-- people -->
+    <section class="view view-pad" id="view-people">
+      <div class="view-head">
+        <div><h1>People &amp; memory</h1><p class="muted">Everyone in your books, and what the agents remember about them.</p></div>
+        <input class="input search" id="people-search" type="search" placeholder="Search people" oninput="renderPeople()" />
+      </div>
+      <div id="people-list" class="people-grid"></div>
+    </section>
+  </main>
+</div>
+
+<!-- person drawer -->
+<div class="drawer-backdrop" id="drawer-backdrop" hidden onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer" hidden aria-live="polite">
+  <div class="drawer-head"><h2 id="drawer-title"></h2>
+    <button class="icon-btn" onclick="closeDrawer()" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
+  <div class="drawer-body" id="drawer-body"></div>
+</aside>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="/static/assets/app.js"></script>
+</body>
+</html>

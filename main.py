@@ -16,7 +16,7 @@ from authentication.auth import get_current_user
 from authentication.settings import settings
 from channels import whatsapp
 from db import User, get_db, get_db_session
-from endpoints import login, logout, registration, statements, whatsapp_auth
+from endpoints import dashboard, demo, login, logout, registration, statements, whatsapp_auth
 from llm import get_curator_model
 from memory import build_graph_memory, get_graph_memory, set_curator, set_graph_memory
 from memory.curator import Curator
@@ -66,7 +66,7 @@ if settings.allowed_origins:
         allow_headers=["Content-Type", "Idempotency-Key"],
     )
 
-for module in (registration, login, logout, whatsapp, statements, whatsapp_auth):
+for module in (registration, login, logout, whatsapp, statements, whatsapp_auth, dashboard, demo):
     app.include_router(module.router)
 
 
@@ -186,4 +186,11 @@ app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__
 
 @app.get("/", include_in_schema=False)
 async def serve_frontend():
+    """The landing page."""
     return FileResponse(os.path.join(os.path.dirname(__file__), "frontend", "index.html"))
+
+
+@app.get("/app", include_in_schema=False)
+async def serve_app():
+    """The web app (it shows its own login if there's no session)."""
+    return FileResponse(os.path.join(os.path.dirname(__file__), "frontend", "app.html"))

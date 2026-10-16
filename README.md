@@ -65,6 +65,25 @@ Without FalkorDB the bookkeeping still works, but recall, nicknames, promise his
 ranking by reliability, do-not-remind, bank-name matching and "why?" all stop. They're
 built on the graph.
 
+## The web app
+
+- **`/`**: the landing page. What it does, how memory works, the trust rules, and the
+  demo buttons.
+- **`/app`**: the product. Same agents and memory as WhatsApp.
+  - **Chat:** history kept across reloads; formatted replies; amount prompts; suggested
+    messages.
+  - **Overview:** sales, spending and profit for a period; who owes you and who you owe;
+    recent entries.
+  - **Who to chase:** the Collector's ranking with its reasons, skipped people and why,
+    and one-click reminder drafts.
+  - **People & memory:** everyone in the books, with their nicknames, promise record, usual
+    order and do-not-remind. Open someone to see each memory with the message it came
+    from and which agent saved it.
+
+Every page except Chat is plain code over Postgres and the graph, with no model calls, so
+it costs no tokens to explore. Login is by email or WhatsApp code; the demo buttons appear
+only when the server sets `DEMO_ACCOUNTS=true`.
+
 ## Graph data model
 
 One graph per trader (`trader_<user_id>`):
@@ -158,7 +177,8 @@ uv run python -m scripts.demo_check     # same messages to both, replies side by
 
 `seed_demo` replays the 30-day scenario through the real ledger, sync, curator and
 Collector, with no model calls, so it's free and repeatable. It prints the password for
-both accounts. Log in to the web app (http://localhost:8001) as either, and send:
+both accounts. With `DEMO_ACCOUNTS=true`, the landing page (http://localhost:8001) has
+one-click "Open the day-30 shop" / "Open the day-1 shop" buttons. Then send:
 
 1. `who I suppose chase?`
 2. `why Emeka first?`
@@ -182,7 +202,7 @@ Then open `trader_<id>` in the FalkorDB Browser. Re-seed before recording:
 
 ```bash
 docker compose up -d falkordb   # the graph tests run against a real FalkorDB (skipped if none)
-uv run pytest                   # 335 tests, SQLite for the ledger, no model calls
+uv run pytest                   # 343 tests, SQLite for the ledger, no model calls
 ```
 
 The memory tests cover:

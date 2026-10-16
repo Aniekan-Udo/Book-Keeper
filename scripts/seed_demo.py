@@ -31,6 +31,7 @@ from datetime import date, datetime, time, timezone
 from sqlalchemy import delete, select
 
 from authentication.auth import hash_password
+from endpoints.demo import DAY1, DAY30
 from db import (
     BankAlert, Contact, ConversationTurn, IdempotencyRecord, OnboardingSession, PartyAlias, PhoneChallenge, Reminder,
     RepaymentAllocation, StatementLink, TransactionORM, User, UserSession, engine, get_db, init_models,
@@ -43,8 +44,6 @@ from memory.sync import GraphSync
 from tools.ledger import TransactionInput, correct_transaction, persist_transactions
 from tools.ledger_events import ledger_events
 
-DAY30 = ("ngozi.day30@example.com", "Ngozi Provisions (day 30)")
-DAY1 = ("ngozi.day1@example.com", "Ngozi Provisions (day 1)")
 
 
 def d(day: int) -> date:
