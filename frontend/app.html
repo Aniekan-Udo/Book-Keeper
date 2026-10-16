@@ -16,6 +16,7 @@
   <symbol id="i-logo" viewBox="0 0 24 24"><path d="M5 4h10a4 4 0 0 1 4 4v12H9a4 4 0 0 1-4-4z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6M9 13h4" stroke="#e8a325" stroke-width="2" stroke-linecap="round"/></symbol>
   <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
   <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="4" width="7" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="4" y="13" width="7" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="13" width="7" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-scale" viewBox="0 0 24 24"><path d="M12 4v16M5 20h14M6 8h12M6 8l-3 6a3 3 0 0 0 6 0zM18 8l-3 6a3 3 0 0 0 6 0z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
   <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="1" fill="currentColor"/></symbol>
   <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 20c.6-3.4 3-5.5 6-5.5s5.4 2.1 6 5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="17" cy="9" r="2.4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16.5 14.6c2.4.2 4 1.9 4.5 4.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
   <symbol id="i-send" viewBox="0 0 24 24"><path d="M3 20 21 12 3 4l2.5 8zM5.5 12H12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></symbol>
@@ -107,15 +108,16 @@
   </header>
 
   <nav class="sidenav" aria-label="Sections">
-    <button class="navbtn active" data-view="chat"><svg><use href="#i-chat"/></svg><span>Chat</span></button>
-    <button class="navbtn" data-view="overview"><svg><use href="#i-grid"/></svg><span>Overview</span></button>
+    <button class="navbtn active" data-view="books"><svg><use href="#i-grid"/></svg><span>Books</span></button>
+    <button class="navbtn" data-view="chat"><svg><use href="#i-chat"/></svg><span>Chat</span></button>
+    <button class="navbtn" data-view="debts"><svg><use href="#i-scale"/></svg><span>Owed &amp; owing</span></button>
+    <button class="navbtn" data-view="people"><svg><use href="#i-people"/></svg><span>People</span></button>
     <button class="navbtn" data-view="chase"><svg><use href="#i-target"/></svg><span>Who to chase</span></button>
-    <button class="navbtn" data-view="people"><svg><use href="#i-people"/></svg><span>People &amp; memory</span></button>
   </nav>
 
   <main class="content">
     <!-- chat -->
-    <section class="view view-chat active" id="view-chat">
+    <section class="view view-chat" id="view-chat">
       <div class="messages" id="messages"></div>
       <div class="composer">
         <div class="suggestions" id="suggestions"></div>
@@ -128,22 +130,41 @@
       </div>
     </section>
 
-    <!-- overview -->
-    <section class="view view-pad" id="view-overview">
+    <!-- books -->
+    <section class="view view-pad active" id="view-books">
       <div class="view-head">
-        <div><h1>Overview</h1><p class="muted" id="ov-period-label"></p></div>
+        <div><h1>Your books</h1><p class="muted" id="ov-period-label"></p></div>
         <div class="seg" id="ov-period">
-          <button data-period="month">This month</button>
+          <button data-period="today">Today</button>
+          <button data-period="week">This week</button>
+          <button data-period="month" class="active">This month</button>
           <button data-period="last_month">Last month</button>
-          <button data-period="all" class="active">All time</button>
+          <button data-period="all">All time</button>
         </div>
       </div>
       <div class="kpis" id="ov-kpis"></div>
       <div class="grid-2">
-        <div class="card panel"><div class="panel-head"><h2>Owed to you</h2><span class="muted" id="ov-owed-total"></span></div><div id="ov-owed"></div></div>
-        <div class="card panel"><div class="panel-head"><h2>You owe</h2><span class="muted" id="ov-owe-total"></span></div><div id="ov-owe"></div></div>
+        <div class="card panel"><div class="panel-head"><h2>What sold</h2><span class="muted" id="ov-sales-total"></span></div><div id="ov-sales-items"></div></div>
+        <div class="card panel"><div class="panel-head"><h2>Where the money went</h2><span class="muted" id="ov-exp-total"></span></div><div id="ov-exp-items"></div></div>
       </div>
-      <div class="card panel"><div class="panel-head"><h2>Recent entries</h2></div><div class="table-wrap"><table class="table" id="ov-recent"></table></div></div>
+      <div class="grid-2">
+        <div class="card panel"><div class="panel-head"><h2>Owed to you</h2><button class="linkish" onclick="showView('debts')">See details</button></div><div id="ov-owed"></div></div>
+        <div class="card panel"><div class="panel-head"><h2>You owe</h2><button class="linkish" onclick="showView('debts')">See details</button></div><div id="ov-owe"></div></div>
+      </div>
+      <div class="card panel"><div class="panel-head"><h2>Recent entries</h2><button class="linkish" onclick="showView('chat')">Record something</button></div><div class="table-wrap"><table class="table" id="ov-recent"></table></div></div>
+    </section>
+
+    <!-- owed & owing -->
+    <section class="view view-pad" id="view-debts">
+      <div class="view-head">
+        <div><h1>Owed &amp; owing</h1><p class="muted">Every open balance: who, what for, how much is left, and when it's due.</p></div>
+        <div class="seg" id="debt-side">
+          <button data-side="owed_to_you" class="active">Owed to you</button>
+          <button data-side="you_owe">You owe</button>
+        </div>
+      </div>
+      <div class="kpis kpis-3" id="debt-kpis"></div>
+      <div id="debt-list" class="stack"></div>
     </section>
 
     <!-- chase -->
@@ -159,7 +180,7 @@
     <!-- people -->
     <section class="view view-pad" id="view-people">
       <div class="view-head">
-        <div><h1>People &amp; memory</h1><p class="muted">Everyone in your books, and what the agents remember about them.</p></div>
+        <div><h1>People</h1><p class="muted">Your customers and suppliers: balances, and what Book-Keeper remembers about each.</p></div>
         <input class="input search" id="people-search" type="search" placeholder="Search people" oninput="renderPeople()" />
       </div>
       <div id="people-list" class="people-grid"></div>

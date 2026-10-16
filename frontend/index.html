@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Book-Keeper: the bookkeeper that remembers your customers</title>
-  <meta name="description" content="Keep your shop's books by chatting in English or Pidgin, on WhatsApp or the web. Book-Keeper remembers your customers, their promises and habits, and tells you who to chase first, and why." />
+  <title>Book-Keeper: your shop's books, kept by chatting</title>
+  <meta name="description" content="Record sales, expenses and debts by chatting in English or Pidgin, on WhatsApp or the web. See what you made this week and this month, what you spent, who owes you for what and when, and who you owe." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/assets/base.css" />
@@ -39,8 +39,8 @@
     </a>
     <nav class="nav-links" id="nav-links">
       <a href="#how">How it works</a>
+      <a href="#features">Features</a>
       <a href="#memory">Memory</a>
-      <a href="#agents">The agents</a>
       <a href="#trust">Trust</a>
       <a href="#demo">Try it</a>
     </nav>
@@ -58,31 +58,32 @@
     <div class="container hero-grid">
       <div>
         <span class="eyebrow"><span class="dot"></span> For market traders · English &amp; Pidgin</span>
-        <h1>The bookkeeper that <em>remembers your customers</em>.</h1>
-        <p class="lede">Tell Book-Keeper what happened in your own words, on WhatsApp or the web. It keeps your books,
-          learns who keeps their promises, and tells you who to chase first, and why.</p>
+        <h1>Your shop's books, <em>kept for you</em>.</h1>
+        <p class="lede">Tell Book-Keeper what you sold, bought or borrowed, in your own words, on WhatsApp or the web.
+          See what you made this week, what you spent, who owes you for what and when, and who you owe. And it
+          remembers your customers.</p>
         <div class="hero-actions">
           <a class="btn btn-primary" href="#demo">Try the live demo</a>
           <a class="btn btn-ghost" href="/app#signup">Create a free account</a>
         </div>
         <div class="assurances">
           <span><svg><use href="#i-check"/></svg> Never touches your money</span>
-          <span><svg><use href="#i-check"/></svg> Works on WhatsApp and the web</span>
-          <span><svg><use href="#i-check"/></svg> Shows its working</span>
+          <span><svg><use href="#i-check"/></svg> WhatsApp and the web</span>
+          <span><svg><use href="#i-check"/></svg> English and Pidgin, typed or spoken</span>
         </div>
       </div>
       <div class="phone" aria-label="Example conversation">
         <div class="phone-screen">
           <div class="phone-top"><div class="avatar">B</div><div><b>Book-Keeper</b><small>online</small></div></div>
           <div class="chat">
-            <div class="msg me">Emeka collect 2 bags beans, 60k. He go pay Monday<span class="t">09:12</span></div>
-            <div class="msg bot">Recorded: Emeka, 2 bags beans, <b>₦60,000</b> on credit, due Monday.<span class="t">09:12</span></div>
-            <div class="msg me">who I suppose chase?<span class="t">17:40</span></div>
-            <div class="msg bot"><b>Emeka</b>, ₦36,000
-              <ul><li>promised Sep 24, still no pay</li><li>broken 3 of his 4 promises</li></ul>
-              Skipped <b>Pastor John</b>: you said on Sep 8 not to remind him.<span class="t">17:40</span></div>
-            <div class="msg me">Chidi's mum pay 30k<span class="t">17:42</span></div>
-            <div class="msg bot">Recorded <b>Mama Chidi</b>'s payment of ₦30,000. Her debt is settled.<span class="t">17:42</span></div>
+            <div class="msg me">Emeka collect 3 tins palm oil, 36k. He go pay Thursday<span class="t">09:12</span></div>
+            <div class="msg bot">Recorded: Emeka, 3 tins palm oil, <b>₦36,000</b> on credit, due Thursday.<span class="t">09:12</span></div>
+            <div class="msg me">How much I make this week?<span class="t">18:05</span></div>
+            <div class="msg bot">This week: sales <b>₦255,000</b>, expenses <b>₦122,000</b>, profit <b>₦133,000</b>.<span class="t">18:05</span></div>
+            <div class="msg me">Who owe me?<span class="t">18:06</span></div>
+            <div class="msg bot"><ul><li><b>Emeka</b> ₦36,000 for 3 tins palm oil, due Thursday</li>
+              <li><b>Mama Chidi</b> ₦30,000 for 1 bag beans</li><li><b>Pastor John</b> ₦30,000 for 1 bag beans</li></ul>
+              Total ₦96,000.<span class="t">18:06</span></div>
           </div>
         </div>
       </div>
@@ -111,11 +112,42 @@
     </div>
   </section>
 
-  <!-- memory -->
-  <section id="memory">
+  <!-- features -->
+  <section id="features">
     <div class="container">
       <div class="section-head">
-        <span class="kicker">Memory</span>
+        <span class="kicker">Your books</span>
+        <h2>Everything a small business needs to know about its money</h2>
+        <p>Ask in the chat, or open the Books page: it's the same numbers, always up to date.</p>
+      </div>
+      <div class="features">
+        <div class="card feature"><div class="icon"><svg><use href="#i-chart"/></svg></div><h3>What you made</h3>
+          <p>Sales, expenses and profit for today, this week, this month or any period, and what sold the most.</p></div>
+        <div class="card feature"><div class="icon"><svg><use href="#i-bag"/></svg></div><h3>Where the money went</h3>
+          <p>Every expense, grouped by what it was for: stock, fuel, transport, labour.</p></div>
+        <div class="card feature"><div class="icon"><svg><use href="#i-people"/></svg></div><h3>Who owes you</h3>
+          <p>Each customer's balance, what it's for, how much they've paid, and the date they promised. Overdue is flagged.</p></div>
+        <div class="card feature"><div class="icon"><svg><use href="#i-handshake"/></svg></div><h3>Who you owe</h3>
+          <p>Suppliers and lenders you still owe, what for and how much is left, so nothing slips.</p></div>
+        <div class="card feature"><div class="icon"><svg><use href="#i-handshake"/></svg></div><h3>Credit, part payments, loans</h3>
+          <p>"She pay 10k, balance Friday" just works. Repayments settle the oldest debt first.</p></div>
+        <div class="card feature"><div class="icon"><svg><use href="#i-doc"/></svg></div><h3>Customer statements</h3>
+          <p>A private link to one customer's statement, ready to forward. Expires in 30 days.</p></div>
+        <div class="card feature"><div class="icon"><svg><use href="#i-bank"/></svg></div><h3>Bank and POS alerts</h3>
+          <p>Forward the alert or a screenshot; a clear repayment is recorded, anything unclear becomes a question.</p></div>
+        <div class="card feature"><div class="icon"><svg><use href="#i-mic"/></svg></div><h3>Voice notes</h3>
+          <p>Speak instead of typing. If a name or amount sounds unclear, it asks.</p></div>
+        <div class="card feature"><div class="icon"><svg><use href="#i-undo"/></svg></div><h3>Fix anything</h3>
+          <p>"Cancel that", "it was 45k not 50k", "na Tunde, no be Tayo". Balances stay right.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- memory -->
+  <section class="alt" id="memory">
+    <div class="container">
+      <div class="section-head">
+        <span class="kicker">And it remembers</span>
         <h2>It learns your business, the way a good assistant would</h2>
         <p>After a month, Book-Keeper needs far less explaining. Everything it remembers came from something you said,
           and you can always ask why.</p>
@@ -186,30 +218,6 @@
     </div>
   </section>
 
-  <!-- features -->
-  <section class="alt">
-    <div class="container">
-      <div class="section-head center">
-        <span class="kicker">Everything a small business needs</span>
-        <h2>From the first sale to the end-of-month report</h2>
-      </div>
-      <div class="features">
-        <div class="card feature"><div class="icon"><svg><use href="#i-handshake"/></svg></div><h3>Credit, part payments, loans</h3>
-          <p>Partial payments, balances, money lent and borrowed, settled oldest-first.</p></div>
-        <div class="card feature"><div class="icon"><svg><use href="#i-chart"/></svg></div><h3>Reports</h3>
-          <p>Profit and loss, spending, who owes you and who you owe, for any period.</p></div>
-        <div class="card feature"><div class="icon"><svg><use href="#i-doc"/></svg></div><h3>Customer statements</h3>
-          <p>A private link to one customer's statement, ready to forward. Expires in 30 days.</p></div>
-        <div class="card feature"><div class="icon"><svg><use href="#i-mic"/></svg></div><h3>Voice notes</h3>
-          <p>Speak instead of typing. If a name or amount sounds unclear, it asks.</p></div>
-        <div class="card feature"><div class="icon"><svg><use href="#i-undo"/></svg></div><h3>Fix anything</h3>
-          <p>"Cancel that", "it was 45k not 50k", "na Tunde, no be Tayo". Balances stay right.</p></div>
-        <div class="card feature"><div class="icon"><svg><use href="#i-bank"/></svg></div><h3>Bank and POS alerts</h3>
-          <p>Forward the alert or a screenshot; a clear repayment is recorded, anything unclear becomes a question.</p></div>
-      </div>
-    </div>
-  </section>
-
   <!-- trust -->
   <section id="trust">
     <div class="container">
@@ -253,15 +261,15 @@
         <div>
           <b>Things to try</b>
           <ul class="try-list">
-            <li>who I suppose chase?</li>
-            <li>why Emeka first?</li>
+            <li>How much I make this week?</li>
+            <li>Wetin I spend this month?</li>
+            <li>Who owe me?</li>
+            <li>Who I owe?</li>
             <li>Bola come, I give am the usual</li>
             <li>Chidi's mum take 1 bag rice, 45k, she go pay Monday</li>
-            <li>remind Pastor John</li>
-            <li>How my business dey for September?</li>
           </ul>
-          <p class="muted" style="margin-top:14px;font-size:14px">Open both accounts, one in a private window, and send the same
-            messages to see what memory changes. The People tab shows what each remembers.</p>
+          <p class="muted" style="margin-top:14px;font-size:14px">The Books and Owed &amp; owing pages show the numbers without
+            typing anything. To see what memory adds, open both accounts (one in a private window) and send the same messages.</p>
         </div>
       </div>
     </div>
@@ -272,6 +280,9 @@
     <div class="container">
       <div class="section-head center"><span class="kicker">Questions</span><h2>Good to know</h2></div>
       <div class="faq">
+        <details><summary>What can it tell me about my business?</summary>
+          <p>What you made and spent today, this week, this month or any period; your profit; what sold most; where the
+            money went; who owes you, for what and by when; and who you owe. Ask in the chat or open the Books page.</p></details>
         <details><summary>Does Book-Keeper handle my money?</summary>
           <p>No. It only keeps records, produces reports and drafts reminders. Payments always happen directly between you and
             your customers.</p></details>
@@ -293,8 +304,8 @@
 
   <section class="dark cta-band">
     <div class="container">
-      <h2 style="color:#fff">Your books, in your own words</h2>
-      <p>Start with today's sales. Book-Keeper takes it from there.</p>
+      <h2 style="color:#fff">Know where your money is, every day</h2>
+      <p>Start with today's sales. Book-Keeper keeps the books from there.</p>
       <div class="hero-actions" style="justify-content:center">
         <a class="btn btn-accent" href="#demo">Try the live demo</a>
         <a class="btn btn-ghost" style="color:#fff;border-color:rgba(255,255,255,.35)" href="/app#signup">Create an account</a>

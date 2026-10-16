@@ -67,18 +67,21 @@ built on the graph.
 
 ## The web app
 
-- **`/`**: the landing page. What it does, how memory works, the trust rules, and the
-  demo buttons.
+- **`/`**: the landing page. Keeping the books by chatting, what it tells you about your
+  money, how its memory works, the trust rules, and the demo buttons.
 - **`/app`**: the product. Same agents and memory as WhatsApp.
-  - **Chat:** history kept across reloads; formatted replies; amount prompts; suggested
-    messages.
-  - **Overview:** sales, spending and profit for a period; who owes you and who you owe;
-    recent entries.
-  - **Who to chase:** the Collector's ranking with its reasons, skipped people and why,
-    and one-click reminder drafts.
-  - **People & memory:** everyone in the books, with their nicknames, promise record, usual
-    order and do-not-remind. Open someone to see each memory with the message it came
-    from and which agent saved it.
+  - **Books** (the home screen): money made, expenses and profit for today, this week,
+    this month, last month or all time; what sold and where the money went, by item;
+    who owes you and who you owe; recent entries.
+  - **Chat:** record anything or ask anything. History is kept across reloads, replies are
+    formatted, there are amount prompts and suggested messages.
+  - **Owed & owing:** every open balance, per person: what it was for, the amount, what's
+    been paid, the balance, and the due date, with overdue flagged. One click to send a
+    statement, draft a reminder or record a payment.
+  - **People:** customers and suppliers, with balances and what's remembered about each
+    (nicknames, promise record, usual order, do-not-remind). Open someone to see each
+    memory with the message it came from and which agent saved it.
+  - **Who to chase:** the Collector's ranking with its reasons, and who was skipped and why.
 
 Every page except Chat is plain code over Postgres and the graph, with no model calls, so
 it costs no tokens to explore. Login is by email or WhatsApp code; the demo buttons appear
@@ -202,7 +205,7 @@ Then open `trader_<id>` in the FalkorDB Browser. Re-seed before recording:
 
 ```bash
 docker compose up -d falkordb   # the graph tests run against a real FalkorDB (skipped if none)
-uv run pytest                   # 343 tests, SQLite for the ledger, no model calls
+uv run pytest                   # 345 tests, SQLite for the ledger, no model calls
 ```
 
 The memory tests cover:
@@ -217,7 +220,7 @@ Live runs against the real model, and what they changed, are written up in
 
 ## Design notes
 
-- [`Documentation.MD` §9](Documentation.MD): architecture, design patterns, **42 numbered
+- [`Documentation.MD` §9](Documentation.MD): architecture, design patterns, **43 numbered
   decisions with their trade-offs**, error handling, log events, every Cypher statement,
   live-run findings, and known limitations.
 - [`docs/hackathon-design.md`](docs/hackathon-design.md): the product design: problem,

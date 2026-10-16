@@ -1,5 +1,7 @@
-"""Read-only views for the web app: the books at a glance, who to chase, the people the
-business deals with and what's remembered about them, and the conversation so far.
+"""Read-only views for the web app: the books (earnings, spending and profit by period,
+what sold and what the money went on), who owes you and who you owe (for what, how much,
+when it's due), the people the business deals with and what's remembered about them,
+who to chase, and the conversation so far.
 
 All of it is plain code over Postgres and the graph: no model calls, so these pages cost
 no tokens and always show the same thing for the same books. Everything is scoped to
@@ -30,7 +32,8 @@ PAYABLE = ("expense", "loan_taken")
 RECENT = 10
 HISTORY_TURNS = 40
 
-Period = Literal["month", "last_month", "all"]
+Period = Literal["today", "week", "month", "last_month", "all"]
+TOP_ITEMS = 8
 
 
 def _money(value) -> float:
@@ -51,6 +54,11 @@ def _session(db: AsyncSession):
 def _period(period: Period) -> tuple[date | None, date | None, str]:
     today = business_today()
     first = today.replace(day=1)
+    if period == "today":
+        return today, today, "Today, " + today.strftime("%d %B").lstrip("0")
+    if period == "week":
+        monday = today - timedelta(days=today.weekday())
+        return monday, today, "This week, since Monday " + monday.strftime("%d %B").lstrip("0")
     if period == "month":
         return first, today, today.strftime("%B %Y")
     if period == "last_month":
@@ -64,6 +72,10 @@ def _entry(r: TransactionORM) -> dict:
             "quantity": r.quantity, "unit": r.unit, "amount": _money(r.amount) if r.amount is not None else None,
             "outstanding": _money(r.outstanding), "due_date": r.due_date.isoformat() if r.due_date else None,
             "status": r.status}
+
+
+def _unit(unit: str | None) -> str:
+    return (unit or "").strip().lower().rstrip("s")
 
 
 def _live(user: User):
@@ -97,6 +109,34 @@ async def overview(period: Period = "month", db: AsyncSession = Depends(get_db_s
         return sorted(({"name": g["name"], "amount": _money(g["amount"])} for g in grouped.values()),
                       key=lambda g: -g["amount"])
 
+    async def by_item(txn_type: str) -> list[dict]:
+        """What sold (or what the money went on) in the period, biggest first."""
+        q = select(TransactionORM.item, TransactionORM.amount, TransactionORM.quantity, TransactionORM.unit).where(
+            *_live(user), TransactionORM.type == txn_type, TransactionORM.status == "complete")
+        if start:
+            q = q.where(TransactionORM.date >= start, TransactionORM.date <= end)
+        grouped: dict[str, dict] = {}
+        for item, amount, qty, unit in (await db.execute(q)).all():
+            name = (item or "").strip() or "Other"
+            g = grouped.setdefault(name.lower(), {"item": name, "amount": Decimal("0"), "entries": 0,
+                                                  "quantity": 0.0, "unit": unit})
+            g["amount"] += amount or 0
+            g["entries"] += 1
+            if qty and _unit(unit) == _unit(g["unit"]):  # "bag" and "bags" add up
+                g["quantity"] += qty
+                if unit and len(unit) > len(g["unit"] or ""):
+                    g["unit"] = unit  # show the plural
+        rows = sorted(grouped.values(), key=lambda g: -g["amount"])[:TOP_ITEMS]
+        return [{"item": g["item"], "amount": _money(g["amount"]), "entries": g["entries"],
+                 "quantity": g["quantity"] or None, "unit": g["unit"]} for g in rows]
+
+    async def unpaid_sales() -> Decimal:
+        q = select(func.coalesce(func.sum(TransactionORM.outstanding), 0)).where(
+            *_live(user), TransactionORM.type == "sale", TransactionORM.status == "complete")
+        if start:
+            q = q.where(TransactionORM.date >= start, TransactionORM.date <= end)
+        return (await db.execute(q)).scalar_one()
+
     sales, spent = await total("sale"), await total("expense")
     owed_to_you, you_owe = await balances(RECEIVABLE), await balances(PAYABLE)
     recent = (await db.execute(
@@ -110,11 +150,52 @@ async def overview(period: Period = "month", db: AsyncSession = Depends(get_db_s
     return {
         "period": label,
         "sales": _money(sales), "expenses": _money(spent), "profit": _money(sales - spent),
+        "sales_on_credit": _money(await unpaid_sales()),
+        "sales_by_item": await by_item("sale"), "expenses_by_item": await by_item("expense"),
         "owed_to_you": {"total": sum(g["amount"] for g in owed_to_you), "people": owed_to_you},
         "you_owe": {"total": sum(g["amount"] for g in you_owe), "people": you_owe},
         "waiting_for_amount": waiting,
         "recent": [_entry(r) for r in recent],
     }
+
+
+@router.get("/debts")
+async def debts(db: AsyncSession = Depends(get_db_session), user: User = Depends(get_current_user)):
+    """Who owes you and who you owe, right now: per person, every open entry with what it
+    was for, the amount, what's been paid, the balance and the due date."""
+    today = business_today()
+    rows = (await db.execute(
+        select(TransactionORM)
+        .where(*_live(user), TransactionORM.status == "complete", TransactionORM.outstanding > 0,
+               TransactionORM.type.in_(RECEIVABLE + PAYABLE))
+        .order_by(TransactionORM.date, TransactionORM.id)
+    )).scalars().all()
+
+    def side(types: tuple[str, ...]) -> dict:
+        people: dict[str, dict] = {}
+        for r in (r for r in rows if r.type in types):
+            name = (r.party or "").strip() or "Unnamed"
+            p = people.setdefault(_key(name), {"name": name, "balance": Decimal("0"), "entries": [],
+                                               "next_due": None, "overdue": False})
+            overdue_days = (today - r.due_date).days if r.due_date and r.due_date < today else 0
+            p["balance"] += r.outstanding
+            p["entries"].append({
+                "id": r.id, "date": r.date.isoformat(), "type": r.type, "item": r.item,
+                "quantity": r.quantity, "unit": r.unit, "amount": _money(r.amount),
+                "paid": _money((r.amount or 0) - r.outstanding), "balance": _money(r.outstanding),
+                "due_date": r.due_date.isoformat() if r.due_date else None, "days_overdue": overdue_days,
+            })
+            if r.due_date and (p["next_due"] is None or r.due_date.isoformat() < p["next_due"]):
+                p["next_due"] = r.due_date.isoformat()
+            p["overdue"] = p["overdue"] or overdue_days > 0
+        ordered = sorted(people.values(), key=lambda p: (not p["overdue"], p["next_due"] or "9999", -p["balance"]))
+        for p in ordered:
+            p["balance"] = _money(p["balance"])
+        return {"total": sum(p["balance"] for p in ordered),
+                "overdue": sum(e["balance"] for p in ordered for e in p["entries"] if e["days_overdue"]),
+                "people": ordered}
+
+    return {"today": today.isoformat(), "owed_to_you": side(RECEIVABLE), "you_owe": side(PAYABLE)}
 
 
 @router.get("/chase")

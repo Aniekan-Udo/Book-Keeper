@@ -5,7 +5,8 @@
 
 - **Day 30** (ngozi.day30@example.com): the whole month replayed through the real code: the
   ledger, the graph sync, the memory curator (with the trader's messages as its source) and
-  the Collector's daily sweeps, on the scenario's own dates.
+  the Collector's daily sweeps, on the scenario's dates, moved forward by whole weeks so the
+  month ends this week (weekdays stay the same).
 - **Day 1** (ngozi.day1@example.com): exactly the same ledger, but nothing learned. Its graph
   only has what the ledger implies (people, debts, customers), like a trader on their first
   day of memory.
@@ -26,11 +27,12 @@ import os
 import secrets
 import sys
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import delete, select
 
 from authentication.auth import hash_password
+from config import business_today
 from endpoints.demo import DAY1, DAY30
 from db import (
     BankAlert, Contact, ConversationTurn, IdempotencyRecord, OnboardingSession, PartyAlias, PhoneChallenge, Reminder,
@@ -46,8 +48,15 @@ from tools.ledger_events import ledger_events
 
 
 
+# The scenario is written for September 2026. Seeding shifts it forward by whole weeks so its
+# last day falls in the current week: "this week" and "this month" then have real numbers,
+# overdue counts are recent, and every weekday stays true ("he go pay Monday" is a Monday).
+SCENARIO_END = date(2026, 9, 30)
+SHIFT = timedelta(weeks=max(0, (business_today() - SCENARIO_END).days // 7))
+
+
 def d(day: int) -> date:
-    return date(2026, 9, day)
+    return date(2026, 9, day) + SHIFT
 
 
 def sale(party, item, qty, unit, amount, day, paid=None, due=None):

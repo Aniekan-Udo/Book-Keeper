@@ -447,6 +447,7 @@ fact traceable to the message it came from.
 | 1 (Oct 15) | FalkorDB in compose; the GraphMemory port and FalkorDB adapter; ledger → graph sync; `rebuild_graph` |
 | 2 (Oct 15) | Three agents (Recorder, Collector, Alert matcher) on a LangGraph StateGraph with plain-code routing; recall (memory in every prompt); the Memory curator; promises, aliases, usual orders, do-not-remind, stated roles; two code-enforced guards found in live runs |
 | 3 (Oct 15) | Collector: overdue promises settled (broken/kept), "who to chase" ranked by code with reasons, do-not-remind enforced in the reminder tool, sent reminders in the graph with BECAUSE links; Alert matcher learns and uses bank names; the "why?" tool. Graphiti stretch goal not taken: the time went into live-run fixes |
+| 5b (Oct 16) | Bookkeeping first: Books is the home screen (today / this week / this month / last month / all time, by item), new Owed & owing page (what for, amount, paid, balance, due date, overdue), landing page leads with the books; demo month shifted by whole weeks to end this week |
 | 5 (Oct 16) | Web app for judges: landing page (`/`), the app (`/app`) with Chat, Overview, Who to chase, People & memory (provenance per memory), read-only views in `endpoints/dashboard.py`, one-click demo login (`DEMO_ACCOUNTS`) |
 | 4 (Oct 15) | Demo: `seed_demo` (the 30-day scenario through the real code, two accounts), `demo_check` (side by side); README for the submission; hardening from the rehearsal (turn timeout, model-slip retry, graph keepalive and read retries) |
 
@@ -787,6 +788,14 @@ rate limited. Production leaves it off.
 nothing to install or compile, and the same container serves it. Assistant replies are
 escaped and only bold, bullets and line breaks are added back, so a reply can't inject
 HTML.
+
+**D43. Bookkeeping leads; memory is the difference.** The product is a bookkeeper: what
+you made and spent this week or month, who owes you for what and by when, who you owe.
+The app opens on Books, the Owed & owing page lists every open entry with its item,
+amount, payments, balance and due date, and the landing page leads with the books.
+Memory and debt chasing follow as "and it remembers". The demo month is shifted forward by
+whole weeks when seeded (`scripts/seed_demo.py`), so "this week" and "this month" hold real
+entries and every weekday in the messages stays true.
 
 ### 9.5 Error handling
 

@@ -32,7 +32,7 @@ async def books(db_session, user):
 async def test_landing_and_app_pages_are_served(new_browser):
     browser = await new_browser()
     landing = await browser.get("/")
-    assert landing.status_code == 200 and "remembers your customers" in landing.text
+    assert landing.status_code == 200 and "books" in landing.text and "who owes you" in landing.text
     app = await browser.get("/app")
     assert app.status_code == 200 and 'src="/static/assets/app.js"' in app.text
     for asset in ("base.css", "landing.css", "app.css", "app.js"):
@@ -41,7 +41,8 @@ async def test_landing_and_app_pages_are_served(new_browser):
 
 async def test_views_need_a_login(new_browser):
     browser = await new_browser()
-    for path in ("/api/v1/overview", "/api/v1/chase", "/api/v1/people", "/api/v1/people/Emeka", "/api/v1/history"):
+    for path in ("/api/v1/overview", "/api/v1/debts", "/api/v1/chase", "/api/v1/people", "/api/v1/people/Emeka",
+                 "/api/v1/history"):
         assert (await browser.get(path)).status_code == 401, path
 
 
@@ -117,3 +118,43 @@ async def test_demo_login_when_switched_on(new_browser, db_session, monkeypatch)
     assert (await browser.get("/api/v1/me")).json()["business_name"] == DAY30[1]
     assert (await browser.post("/demo/login", json={"account": "day1"})).status_code == 404  # not seeded
     assert (await browser.post("/demo/login", json={"account": "admin"})).status_code == 422
+
+
+async def test_overview_by_item_and_by_period(new_browser, test_user, db_session):
+    from config import business_today
+    today = business_today()
+    await persist_transactions(db_session, [
+        TransactionInput(type="sale", party="Bola", item="rice", quantity=2, unit="bags", amount=90000,
+                         direction="in", date=today),
+        TransactionInput(type="sale", party="Emeka", item="Rice", quantity=1, unit="bag", amount=45000,
+                         amount_paid=0, direction="in", date=today),
+        TransactionInput(type="sale", party="Tola", item="beans", amount=30000, direction="in", date=date(2020, 1, 1)),
+        TransactionInput(type="expense", item="fuel", amount=5000, direction="out", date=today),
+    ], test_user.id)
+    browser = await logged_in(new_browser, test_user)
+
+    day = (await browser.get("/api/v1/overview?period=today")).json()
+    assert (day["sales"], day["expenses"], day["sales_on_credit"]) == (135000, 5000, 45000)
+    assert day["sales_by_item"] == [{"item": "rice", "amount": 135000, "entries": 2, "quantity": 3, "unit": "bags"}]
+    assert day["expenses_by_item"][0]["item"] == "fuel"
+    week = (await browser.get("/api/v1/overview?period=week")).json()
+    assert week["sales"] == 135000 and week["period"].startswith("This week")
+    assert (await browser.get("/api/v1/overview?period=all")).json()["sales"] == 165000
+
+
+async def test_debts_say_who_owes_what_for_what_and_when(new_browser, test_user, db_session):
+    await books(db_session, test_user)
+    await persist_transactions(db_session, [
+        TransactionInput(type="debt_repayment", party="Emeka", amount=20000, direction="in", date=date(2026, 9, 6)),
+    ], test_user.id)
+    browser = await logged_in(new_browser, test_user)
+    d = (await browser.get("/api/v1/debts")).json()
+
+    [emeka] = d["owed_to_you"]["people"]
+    assert emeka["name"] == "Emeka" and emeka["balance"] == 40000 and emeka["overdue"] is True
+    [entry] = emeka["entries"]
+    assert (entry["item"], entry["amount"], entry["paid"], entry["balance"], entry["due_date"]) == \
+        ("beans", 60000, 20000, 40000, "2026-09-07")
+    assert entry["days_overdue"] > 0 and d["owed_to_you"]["overdue"] == 40000
+    [musa] = d["you_owe"]["people"]
+    assert (musa["name"], musa["balance"], musa["entries"][0]["item"]) == ("Alhaji Musa", 50000, "palm oil")

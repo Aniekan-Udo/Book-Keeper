@@ -121,6 +121,7 @@ body { overflow: hidden; }
 .seg button { border: none; background: none; padding: 7px 12px; border-radius: 7px; font-weight: 600; font-size: 13.5px; color: var(--muted); }
 .seg button.active { background: var(--green-100); color: var(--green-800); }
 .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
+.kpis-3 { grid-template-columns: repeat(3, 1fr); }
 .kpi { padding: 16px 18px; }
 .kpi .label { font-size: 13px; color: var(--muted); font-weight: 600; }
 .kpi .value { font-size: 23px; font-weight: 750; letter-spacing: -.02em; margin-top: 4px; }
@@ -146,6 +147,28 @@ body { overflow: hidden; }
 .table td button { background: none; border: none; padding: 0; font-weight: 600; color: var(--ink); text-align: left; }
 .table td button:hover { color: var(--green-700); text-decoration: underline; }
 .tags { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+/* ── books: items ── */
+.bar-item { display: grid; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+.bar-item:last-child { border-bottom: none; }
+.bar-top { display: flex; justify-content: space-between; gap: 10px; }
+.bar-top .sub { color: var(--muted); font-size: 13px; margin-left: 6px; }
+.bar { height: 6px; border-radius: 3px; background: var(--green-100); overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--green-600); border-radius: 3px; }
+.bar.exp span { background: var(--amber-500); }
+.bar.exp { background: var(--amber-100); }
+
+/* ── owed & owing ── */
+.debtor { padding: 16px 20px; }
+.debtor-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
+.debtor-head .name { font-size: 17px; font-weight: 700; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.debtor-head .name button { background: none; border: none; padding: 0; font: inherit; color: var(--ink); }
+.debtor-head .name button:hover { color: var(--green-700); text-decoration: underline; }
+.debtor-head .bal { font-size: 18px; font-weight: 750; }
+.debtor .table td, .debtor .table th { padding: 8px 8px; }
+.due-ok { color: var(--ink-2); }
+.due-late { color: var(--red-600); font-weight: 600; }
+.debtor-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 
 /* ── chase ── */
 .chase-card { padding: 18px 20px; display: grid; grid-template-columns: 44px 1fr auto; gap: 16px; align-items: start; }
@@ -204,7 +227,8 @@ body { overflow: hidden; }
   .navbtn { flex-direction: column; gap: 3px; font-size: 11px; padding: 6px 2px; justify-content: center; text-align: center; }
   .navbtn span { white-space: nowrap; }
   .view-pad { padding: 18px 16px 40px; }
-  .kpis { grid-template-columns: 1fr 1fr; }
+  .kpis, .kpis-3 { grid-template-columns: 1fr 1fr; }
+  .seg { flex-wrap: wrap; }
   .grid-2 { grid-template-columns: 1fr; }
   .chase-card { grid-template-columns: 38px 1fr; }
   .chase-actions { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; }

@@ -6,14 +6,17 @@ const $ = (id) => document.getElementById(id);
 const naira = (n) => '₦' + Number(n || 0).toLocaleString('en-NG', { maximumFractionDigits: 0 });
 const noKobo = (text) => String(text).replace(/(₦[\d,]+)\.00/g, '$1');  // "₦36,000.00" → "₦36,000"
 const SUGGESTIONS = [
-  'who I suppose chase?', 'why Emeka first?', 'Bola come, I give am the usual',
-  "Chidi's mum take 1 bag rice, 45k, she go pay Monday", 'How my business dey for September?',
-  'Who still owes me money?', 'I sold 20 bags of rice to Ahmed for 900k, he paid 600k', 'Cancel that',
+  'How much I make this week?', 'Wetin I spend this month?', 'Who owe me?', 'Who I owe?',
+  'I sold 20 bags of rice to Ahmed for 900k, he paid 600k', 'Paid 45k for fuel today',
+  'Bola come, I give am the usual', "Chidi's mum take 1 bag rice, 45k, she go pay Monday",
+  'who I suppose chase?', 'Cancel that',
 ];
 let me = null;
 let whatsappInfo = { enabled: false };
 let challengeRun = 0;     // bumping this stops an older WhatsApp code's polling
-let period = 'all';
+let period = 'month';
+let debtSide = 'owed_to_you';
+let debtData = null;
 let peopleData = { people: [], memory: 'off' };
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -185,9 +188,9 @@ async function enterApp() {
   $('biz-name').textContent = me.business_name || '';
   document.title = (me.business_name ? me.business_name + ' · ' : '') + 'Book-Keeper';
   $('auth').hidden = true; $('shell').hidden = false;
-  await loadHistory();
+  showView(location.hash.replace('#', '') || 'books');  // the books first; chat history loads behind it
+  loadHistory();
   loadMemoryStatus();
-  showView(location.hash.replace('#', '') || 'chat');
 }
 async function logout() {
   await fetch('/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
@@ -196,12 +199,12 @@ async function logout() {
 }
 
 // ── navigation ───────────────────────────────────────────────────────────────
-const LOADERS = { overview: loadOverview, chase: loadChase, people: loadPeople };
+const LOADERS = { books: loadOverview, debts: loadDebts, chase: loadChase, people: loadPeople };
 function showView(name) {
-  if (!document.querySelector(`.navbtn[data-view="${name}"]`)) name = 'chat';
+  if (!document.querySelector(`.navbtn[data-view="${name}"]`)) name = 'books';
   document.querySelectorAll('.navbtn').forEach(b => b.classList.toggle('active', b.dataset.view === name));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
-  history.replaceState(null, '', name === 'chat' ? location.pathname : '#' + name);
+  history.replaceState(null, '', name === 'books' ? location.pathname : '#' + name);
   if (LOADERS[name]) LOADERS[name]();
   if (name === 'chat') $('msg-input').focus();
 }
@@ -300,6 +303,7 @@ async function sendMessage(textOverride) {
     else {
       addRow('ai', data.reply);
       (data.clarifications || []).forEach(addClarify);
+      debtData = null;  // the books may have changed: reload them next time they're opened
     }
   } catch (err) {
     removeTyping();
@@ -358,14 +362,16 @@ async function loadOverview() {
     const c = el('div', 'card kpi'); c.append(el('div', 'label', label), el('div', 'value ' + (cls || ''), value));
     if (note) c.append(el('div', 'note', note)); k.append(c);
   };
-  kpi('Sales', naira(d.sales), '', d.period);
-  kpi('Spending', naira(d.expenses), '', d.period);
-  kpi('Profit', naira(d.profit), d.profit >= 0 ? 'pos' : 'neg', 'sales minus spending');
+  kpi('Money made (sales)', naira(d.sales), '', d.sales_on_credit ? naira(d.sales_on_credit) + ' of it not yet paid' : 'all paid');
+  kpi('Expenses', naira(d.expenses), '', 'what you spent');
+  kpi('Profit', naira(d.profit), d.profit >= 0 ? 'pos' : 'neg', 'sales minus expenses');
   const people = (n) => `${n} ${n === 1 ? 'person' : 'people'}, right now`;
   kpi('Owed to you', naira(d.owed_to_you.total), '', people(d.owed_to_you.people.length));
   kpi('You owe', naira(d.you_owe.total), '', people(d.you_owe.people.length));
-  $('ov-owed-total').textContent = naira(d.owed_to_you.total);
-  $('ov-owe-total').textContent = naira(d.you_owe.total);
+  itemBars($('ov-sales-items'), d.sales_by_item, 'No sales in this period.', false);
+  itemBars($('ov-exp-items'), d.expenses_by_item, 'No expenses in this period.', true);
+  $('ov-sales-total').textContent = naira(d.sales);
+  $('ov-exp-total').textContent = naira(d.expenses);
   balanceList($('ov-owed'), d.owed_to_you.people, 'Nobody owes you anything. 🎉');
   balanceList($('ov-owe'), d.you_owe.people, "You don't owe anyone.");
   const t = $('ov-recent'); t.replaceChildren();
@@ -381,6 +387,81 @@ async function loadOverview() {
     body.append(tr);
   }
   t.append(body);
+}
+
+function itemBars(target, items, emptyText, isExpense) {
+  target.replaceChildren();
+  if (!items.length) { target.append(el('div', 'empty', emptyText)); return; }
+  const max = Math.max(...items.map(i => i.amount)) || 1;
+  for (const i of items) {
+    const row = el('div', 'bar-item');
+    const top = el('div', 'bar-top');
+    const left = el('span', '', i.item);
+    const detail = [i.quantity ? `${i.quantity} ${i.unit || ''}`.trim() : '', `${i.entries} entr${i.entries === 1 ? 'y' : 'ies'}`].filter(Boolean).join(' · ');
+    left.append(el('span', 'sub', detail));
+    top.append(left, el('span', 'amount', naira(i.amount)));
+    const bar = el('div', 'bar' + (isExpense ? ' exp' : '')); const fill = el('span'); fill.style.width = (100 * i.amount / max) + '%';
+    bar.append(fill); row.append(top, bar); target.append(row);
+  }
+}
+
+// ── owed & owing ─────────────────────────────────────────────────────────────
+document.querySelectorAll('#debt-side button').forEach(b => b.addEventListener('click', () => {
+  debtSide = b.dataset.side;
+  document.querySelectorAll('#debt-side button').forEach(x => x.classList.toggle('active', x === b));
+  renderDebts();
+}));
+function dueText(e) {
+  if (!e.due_date) return el('span', 'muted', 'no date given');
+  if (e.days_overdue) return el('span', 'due-late', `${shortDate(e.due_date)} · ${e.days_overdue} day${e.days_overdue === 1 ? '' : 's'} late`);
+  return el('span', 'due-ok', shortDate(e.due_date));
+}
+async function loadDebts() {
+  try { debtData = await getJSON('/api/v1/debts'); } catch (e) { if (e.message !== 'signed out') toast(e.message); return; }
+  renderDebts();
+}
+function renderDebts() {
+  if (!debtData) return;
+  const d = debtData[debtSide], owed = debtSide === 'owed_to_you';
+  const k = $('debt-kpis'); k.replaceChildren();
+  const kpi = (label, value, note, cls) => { const c = el('div', 'card kpi'); c.append(el('div', 'label', label), el('div', 'value ' + (cls || ''), value), el('div', 'note', note)); k.append(c); };
+  kpi(owed ? 'Owed to you' : 'You owe', naira(d.total), `${d.people.length} ${d.people.length === 1 ? 'person' : 'people'}`);
+  kpi('Overdue', naira(d.overdue), 'past the date they gave', d.overdue ? 'neg' : '');
+  const dated = d.people.filter(p => p.next_due && !p.overdue).sort((a, b) => a.next_due.localeCompare(b.next_due))[0];
+  kpi('Next due', dated ? shortDate(dated.next_due) : '—', dated ? dated.name : 'no upcoming dates');
+  const list = $('debt-list'); list.replaceChildren();
+  if (!d.people.length) { list.append(el('div', 'card panel empty', owed ? 'Nobody owes you anything right now.' : "You don't owe anyone right now.")); return; }
+  for (const p of d.people) {
+    const card = el('div', 'card debtor');
+    const head = el('div', 'debtor-head');
+    const name = el('div', 'name'); name.append(personLink(p.name));
+    if (p.overdue) name.append(el('span', 'pill red', 'overdue'));
+    head.append(name, el('div', 'bal amount ' + (owed ? 'balance-owes' : 'balance-owed'), naira(p.balance)));
+    card.append(head);
+    const wrap = el('div', 'table-wrap'); const t = el('table', 'table');
+    t.innerHTML = '<thead><tr><th>Date</th><th>For</th><th class="num">Amount</th><th class="num">Paid</th><th class="num">Balance</th><th>Due</th></tr></thead>';
+    const tb = el('tbody');
+    for (const e of p.entries) {
+      const what = e.type === 'loan_given' ? 'Money lent' : e.type === 'loan_taken' ? 'Money borrowed'
+        : [e.quantity ? `${e.quantity} ${e.unit || ''}`.trim() : '', e.item || (owed ? 'Goods' : 'Purchase')].filter(Boolean).join(' ');
+      const tr = el('tr');
+      const due = el('td'); due.append(dueText(e));
+      tr.append(el('td', '', shortDate(e.date)), el('td', '', what), el('td', 'num', naira(e.amount)),
+                el('td', 'num', e.paid ? naira(e.paid) : '—'), el('td', 'num', naira(e.balance)), due);
+      tb.append(tr);
+    }
+    t.append(tb); wrap.append(t); card.append(wrap);
+    const actions = el('div', 'debtor-actions');
+    if (owed) {
+      const st = el('button', 'btn btn-ghost btn-sm', 'Send statement'); st.onclick = () => sendMessage('send me ' + p.name + ' statement');
+      const rem = el('button', 'btn btn-ghost btn-sm', 'Draft reminder'); rem.onclick = () => sendMessage('remind ' + p.name);
+      actions.append(st, rem);
+    }
+    const paid = el('button', 'btn btn-ghost btn-sm', owed ? 'Record a payment' : 'Record what you paid');
+    paid.onclick = () => { showView('chat'); const i = $('msg-input'); i.value = owed ? `${p.name} pay ` : `I pay ${p.name} `; autoResize(i); i.focus(); };
+    actions.append(paid); card.append(actions);
+    list.append(card);
+  }
 }
 
 // ── who to chase ─────────────────────────────────────────────────────────────
