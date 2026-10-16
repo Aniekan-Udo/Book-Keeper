@@ -8,8 +8,6 @@
 Short-term memory is the recent history and entries still waiting for an amount, so a
 follow-up like "15k" or "cancel that" makes sense. Long-term memory is the graph.
 """
-import weakref
-import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -25,6 +23,7 @@ from observability import message_tracer, trace_id_of
 from tools.clean_version import build_tools
 from tools.alerts import pending_alerts
 from tools.debt_collection import pending_drafts
+from tools.turn_lock import user_turn_lock
 from utils import logger
 
 HISTORY_WINDOW = timedelta(minutes=30)  # older than this, a new message starts a new conversation
@@ -32,8 +31,6 @@ HISTORY_TURNS = 8
 PENDING_LIMIT = 5
 FALLBACK_REPLY = "I wasn't able to process that. Could you rephrase or try again?"
 
-# one turn at a time per user, so two quick messages can't interleave their history
-_user_locks: "weakref.WeakValueDictionary[int, asyncio.Lock]" = weakref.WeakValueDictionary()
 
 
 @dataclass
@@ -70,11 +67,8 @@ async def pending_amounts(db: AsyncSession, user_id: int) -> list[str]:
 
 
 async def respond(db: AsyncSession, user_id: int, text: str, channel: str) -> AssistantReply:
-    lock = _user_locks.get(user_id)
-    if lock is None:
-        lock = _user_locks[user_id] = asyncio.Lock()
-
-    async with lock:
+    # one turn at a time per user, in this process and across all others (tools/turn_lock.py)
+    async with user_turn_lock(db, user_id):
         started = datetime.now(timezone.utc)
         history = await load_history(db, user_id)
         recalled = await recall(get_graph_memory(), user_id, text)  # never raises

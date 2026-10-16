@@ -205,7 +205,7 @@ Then open `trader_<id>` in the FalkorDB Browser. Re-seed before recording:
 
 ```bash
 docker compose up -d falkordb   # the graph tests run against a real FalkorDB (skipped if none)
-uv run pytest                   # 345 tests, SQLite for the ledger, no model calls
+uv run pytest                   # 347 tests (+3 that need a Postgres URL), no model calls
 ```
 
 The memory tests cover:
@@ -220,7 +220,7 @@ Live runs against the real model, and what they changed, are written up in
 
 ## Design notes
 
-- [`Documentation.MD` §9](Documentation.MD): architecture, design patterns, **43 numbered
+- [`Documentation.MD` §9](Documentation.MD): architecture, design patterns, **45 numbered
   decisions with their trade-offs**, error handling, log events, every Cypher statement,
   live-run findings, and known limitations.
 - [`docs/hackathon-design.md`](docs/hackathon-design.md): the product design: problem,

@@ -797,6 +797,24 @@ Memory and debt chasing follow as "and it remembers". The demo month is shifted 
 whole weeks when seeded (`scripts/seed_demo.py`), so "this week" and "this month" hold real
 entries and every weekday in the messages stays true.
 
+**D44. One turn at a time per user, across processes: a Postgres advisory lock.** The
+in-process asyncio lock only covered one process. Now `tools/turn_lock.py` also takes
+`pg_advisory_lock(0x424B, user_id)` on its own connection for the whole turn: commits made
+mid-turn don't release it, and if the process dies Postgres releases it with the
+connection. The in-process lock stays as a free first gate. Waiting is bounded
+(`TURN_LOCK_TIMEOUT`, 120 s, just over the 90 s agent ceiling); past it, the trader is told
+"still working on your last message" (a `TurnInProgress`, shown like any busy reply).
+Skipped on SQLite. Tested against real Postgres with two engines standing in for two
+processes.
+*Trade-off:* each turn holds a second connection while it runs, which D45 sizes for.
+
+**D45. Connection pool sized per process.** It was 100 + 50 overflow per process, above
+Postgres's default `max_connections` of 100 on its own. Now `DB_POOL_SIZE` (10) and
+`DB_MAX_OVERFLOW` (10), with the rule written down: processes × (pool + overflow) stays
+under `max_connections`, leaving room for migrations and admin. One turn uses up to two
+connections (its session and the lock), so the defaults allow 10 concurrent turns per
+process before overflow.
+
 ### 9.5 Error handling
 
 | Where | Fails how | What happens |
@@ -818,6 +836,8 @@ entries and every weekday in the messages stays true.
 | `extract_transactions_tool` | Ambiguous new name | Returns an error to the agent, which asks the user; nothing is recorded |
 | `agents/team.py` node | Claimed recording, nothing recorded | `team.unbacked_claim`, one re-run; `team.unbacked_claim_again` if it happens twice |
 | `agents/team.py` | Second handoff attempted | `team.handoff_refused`; the second agent's reply is used |
+| `tools/turn_lock.user_turn_lock` | The same user's previous turn still running past `TURN_LOCK_TIMEOUT` | `turn_lock.busy` (process or database); `TurnInProgress`: "still working on your last message" |
+| `tools/turn_lock._advisory_lock` | Unlock fails | `turn_lock.unlock_failed`; closing the connection releases the lock anyway |
 | `Collector.who_to_chase` | Sweep or recall fails | `collector.sweep_failed` / `collector.recall_failed`; ranks on the ledger alone (overdue, amount) |
 | `Collector.do_not_remind` | Graph unavailable | `collector.check_failed`; returns no restriction (the prompt still carries what recall found, if anything) |
 | `tools/alerts._graph_bank_name` | Graph unavailable | `alerts.graph_lookup_failed`; falls back to the PartyAlias table |
@@ -856,6 +876,7 @@ Structured JSON via structlog (`utils.logger`).
 | `explain.done` | info | A "why?" answer: promises, facts, aliases, quotes found |
 | `router.model_slip_retry` / `router.model_slip_again` | warning / error | Malformed tool call retried / failed twice |
 | `router.turn_timeout` | warning | An agent run hit the ceiling |
+| `turn_lock.waited` / `turn_lock.busy` | info / warning | A message waited over 1 s for the same user's previous one / gave up waiting |
 
 ### 9.7 The Cypher the product runs
 
@@ -891,7 +912,12 @@ All in `memory/falkor.py`:
   `trader_<user_id>`.
 - Settings: `GRAPH_MEMORY` (`falkordb` / `off`), `FALKORDB_HOST`, `FALKORDB_PORT`,
   `FALKORDB_PASSWORD`, `FALKORDB_TIMEOUT_SECONDS` (default 5), `FALKORDB_BROWSER`,
-  `CURATOR_MODEL`, `LLM_TURN_TIMEOUT` (default 90).
+  `CURATOR_MODEL`, `LLM_TURN_TIMEOUT` (default 90), `DB_POOL_SIZE` / `DB_MAX_OVERFLOW`
+  (default 10 / 10 per process), `TURN_LOCK_TIMEOUT` (default 120).
+- Scaling out: run more app processes freely. Turns stay one-at-a-time per user (D44);
+  keep processes × (pool + overflow) under Postgres `max_connections` (D45). Graph sync
+  and curation are still in-process background tasks, lost if a process dies mid-task:
+  `rebuild_graph` repairs the ledger side.
 - Demo: `uv run python -m scripts.seed_demo [--reset]`, then `uv run python -m scripts.demo_check`.
 - After an outage, or to backfill existing traders:
   `uv run python -m scripts.rebuild_graph --all` (or `--user 12`).

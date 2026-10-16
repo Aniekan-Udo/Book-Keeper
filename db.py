@@ -15,8 +15,14 @@ POSTGRES_URI = os.getenv(
     "postgresql+asyncpg://postgres:bookkeeper@postgres:5432/postgres"
 )
 
-engine = create_async_engine(url=POSTGRES_URI, pool_size=100, max_overflow=50,
-                              pool_timeout=60, pool_pre_ping=True, echo=False)
+# Connections per process. Keep (processes × (DB_POOL_SIZE + DB_MAX_OVERFLOW)) under the
+# server's max_connections (Postgres default: 100), leaving room for migrations and admin.
+# One conversation turn uses up to two: its session, and the per-user lock (tools/turn_lock.py).
+DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))
+DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+
+engine = create_async_engine(url=POSTGRES_URI, pool_size=DB_POOL_SIZE, max_overflow=DB_MAX_OVERFLOW,
+                              pool_timeout=30, pool_pre_ping=True, echo=False)
 SessionLocal = async_sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
