@@ -100,4 +100,14 @@ async def handle_message(user_message: str, system_prompt: str, tools: list,
         raise LLMUnavailable("The assistant is busy right now. Please try again shortly.") from e
 
     llm_breaker.record_success()
+    calls, tokens_in, tokens_out = token_usage(result)
+    logger.info("router.tokens", model_calls=calls, input_tokens=tokens_in, output_tokens=tokens_out)
     return result
+
+
+def token_usage(result: dict) -> tuple[int, int, int]:
+    """(model calls, input tokens, output tokens) in one agent run, from the usage the
+    provider reported on each model reply. For watching a daily token quota."""
+    usage = [m.usage_metadata for m in result.get("messages", []) if getattr(m, "usage_metadata", None)]
+    return (len(usage), sum(u.get("input_tokens", 0) for u in usage),
+            sum(u.get("output_tokens", 0) for u in usage))

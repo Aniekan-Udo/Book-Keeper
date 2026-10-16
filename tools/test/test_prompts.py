@@ -53,6 +53,9 @@ def test_waiting_items_and_memory_reach_the_right_prompt():
     ("remind Mama Chidi", "collector"),
     ("abeg tell Emeka make he pay", "collector"),
     ("who I suppose chase?", "collector"),
+    ("why Emeka first?", "collector"),
+    ("why you skip Pastor John?", "collector"),
+    ("why Bola dey buy rice?", "recorder"),
 ])
 def test_routing_by_message(message, agent):
     assert route(message)[0] == agent

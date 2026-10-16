@@ -133,7 +133,7 @@ OPTIONAL MATCH (pr:Promise)-[:MADE_BY]->(p)
 WITH p, roles, aliases, debts, collect([pr.due, pr.status]) AS promises
 OPTIONAL MATCH (f:Fact)-[:ABOUT]->(p)
 RETURN p.key, p.name, roles, aliases, debts, promises,
-       collect([f.kind, f.summary, f.said, f.valid_from, f.confidence, f.until, f.valid_to])
+       collect([f.kind, f.summary, f.said, f.valid_from, f.confidence, f.until, f.valid_to, f.data])
 """
 
 CURRENT_FACT = """
@@ -486,8 +486,8 @@ class FalkorGraphMemory:
                 open_debts=len({pg_id for pg_id, is_open in debts if pg_id is not None and is_open}),
                 promises=tuple(sorted({PromiseView(due=d, status=st) for d, st in promises if d},
                                       key=lambda p: (p.due, p.status))),
-                facts=tuple(FactView(kind=k, summary=sm, said=sd, since=since, confidence=c, until=u)
-                            for k, sm, sd, since, c, u, ended in facts if k and ended is None),
+                facts=tuple(FactView(kind=k, summary=sm, said=sd, since=since, confidence=c, until=u, data=dt)
+                            for k, sm, sd, since, c, u, ended, dt in facts if k and ended is None),
             ))
         return memories
 

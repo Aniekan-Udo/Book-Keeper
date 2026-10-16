@@ -65,3 +65,12 @@ async def test_a_stalled_run_gives_up_after_the_turn_timeout(monkeypatch):
     with pytest.raises(router.LLMUnavailable, match="busy"):
         await router.handle_message("I sold rice", "prompt", [])
     assert router.llm_breaker.failures == 1
+
+
+def test_token_usage_adds_up_each_model_reply():
+    result = {"messages": [
+        AIMessage(content="", usage_metadata={"input_tokens": 3000, "output_tokens": 50, "total_tokens": 3050}),
+        AIMessage(content="Recorded.", usage_metadata={"input_tokens": 3200, "output_tokens": 40, "total_tokens": 3240}),
+    ]}
+    assert router.token_usage(result) == (2, 6200, 90)
+    assert router.token_usage({"messages": [AIMessage(content="hi")]}) == (0, 0, 0)

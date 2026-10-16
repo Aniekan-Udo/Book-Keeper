@@ -20,6 +20,7 @@ trader says otherwise. Both rules come from live runs: blocking the weak case st
 genuinely different Chidi from being recorded; hinting "maybe the same" made the model
 file Chidi's ₦2,000 under Mama Chidi.
 """
+import json
 import re
 import time
 from dataclasses import dataclass, field
@@ -167,6 +168,20 @@ async def recall(memory: GraphMemory, user_id: int, message: str) -> Recalled:
     return result
 
 
+def _usual_details(data: str | None) -> str:
+    """", last ₦90,000, paid cash" from a usual order's JSON details, if there are any."""
+    try:
+        details = json.loads(data) if data else {}
+    except ValueError:
+        return ""
+    out = ""
+    if details.get("last_amount"):
+        out += f", last time ₦{details['last_amount']:,.0f}"
+    if details.get("payment"):
+        out += f", paid {details['payment']}"
+    return out
+
+
 def _describe(p: PartyMemory) -> str:
     bits = [", ".join(p.roles) or "no role recorded"]
     if p.aliases:
@@ -180,7 +195,8 @@ def _describe(p: PartyMemory) -> str:
         bits.append(f"promises kept {p.kept}, broken {p.broken}")
     for f in p.facts:
         if f.kind == "usual_order":
-            bits.append(f"usual order: {f.summary}" + (" (guessed from past sales; confirm)" if f.confidence == "inferred" else ""))
+            bits.append(f"usual order: {f.summary}{_usual_details(f.data)}"
+                        + (" (guessed from past sales; confirm)" if f.confidence == "inferred" else ""))
         elif f.kind == "do_not_remind":
             bits.append("trader said not to remind them" + (f" until {f.until}" if f.until else "")
                         + (f' ("{f.said}")' if f.said else ""))

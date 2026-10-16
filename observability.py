@@ -20,11 +20,20 @@ def opik_enabled() -> bool:
     return bool(os.getenv("OPIK_API_KEY") or os.getenv("OPIK_URL_OVERRIDE"))
 
 
+def _drop_empty_settings() -> None:
+    """docker compose passes unset variables as empty strings; Opik would read an empty
+    OPIK_URL_OVERRIDE as its server address and fail every request."""
+    for name in ("OPIK_URL_OVERRIDE", "OPIK_WORKSPACE"):
+        if os.environ.get(name) == "":
+            del os.environ[name]
+
+
 def message_tracer(user_id: int, channel: str):
     """A tracer for one trader message, or None when Opik isn't configured. All of a
     trader's messages share a thread, so a conversation reads as one thread in Opik."""
     if not opik_enabled():
         return None
+    _drop_empty_settings()
     from opik.integrations.langchain import OpikTracer  # only imported when used
 
     return OpikTracer(

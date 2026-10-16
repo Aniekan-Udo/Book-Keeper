@@ -23,8 +23,8 @@ The same ledger, the same messages, two accounts. **Day 1** has nothing remember
 | "Chidi's mum pay 30k" | Has to ask who that is (and might file it under Chidi, the porter) | Recorded against **Mama Chidi**: it learned the nickname when she confirmed it |
 | "Who I suppose chase?" | A list by amount, Pastor John included | **Emeka first**: "promised to pay by Sep 24 and hasn't", "has broken 3 of 4 promises". **Pastor John skipped**: "you said on Sep 8 not to remind them" |
 | "Why Emeka first?" | No history to give | Each promise, its outcome, who decided it, and the trader's own message it came from |
-| "Bola come, I give am the usual" | "What did Bola buy?" | "2 bags rice, ₦90,000, cash. Record it?" (learned from three identical sales) |
-| Forwards an alert from `NWOSU EMEKA CHUKWUDI` | "Whose payment is this?" | Matched to Emeka: the bank name was confirmed once, two weeks earlier |
+| "Bola come, I give am the usual" | "What did Bola buy?" | "2 bags rice, ₦90,000, paid cash?" (learned from three identical sales) |
+| Forwards an alert from `OKAFOR CHINYERE MARY` | "Whose payment is this?" | Mama Chidi's payment: the bank name was confirmed once, on Sep 4 |
 | "Remind Pastor John" | Goes straight to drafting | Refused in code until the trader confirms: they said not to |
 
 ## How it works
@@ -160,11 +160,13 @@ uv run python -m scripts.demo_check     # same messages to both, replies side by
 Collector, with no model calls, so it's free and repeatable. It prints the password for
 both accounts. Log in to the web app (http://localhost:8001) as either, and send:
 
-1. `Chidi's mum pay 30k`
-2. `who I suppose chase?`
-3. `why Emeka first?`
-4. `Bola come, I give am the usual`
-5. `(forwarded alert) Credit Alert! Amt: NGN36,000.00 Desc: TRF FROM NWOSU EMEKA CHUKWUDI`
+1. `who I suppose chase?`
+2. `why Emeka first?`
+3. `Bola come, I give am the usual`
+4. `(forwarded alert) Credit Alert! Amt: NGN30,000.00 Desc: TRF FROM OKAFOR CHINYERE MARY`
+   (a bank name with no word in common with "Mama Chidi": only memory can match it)
+5. `Chidi's mum take 1 bag rice, 45k, she go pay Monday`
+6. `remind Pastor John`
 
 Then open `trader_<id>` in the FalkorDB Browser. Re-seed before recording:
 `uv run python -m scripts.seed_demo --reset`.
@@ -180,7 +182,7 @@ Then open `trader_<id>` in the FalkorDB Browser. Re-seed before recording:
 
 ```bash
 docker compose up -d falkordb   # the graph tests run against a real FalkorDB (skipped if none)
-uv run pytest                   # 331 tests, SQLite for the ledger, no model calls
+uv run pytest                   # 335 tests, SQLite for the ledger, no model calls
 ```
 
 The memory tests cover:

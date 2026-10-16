@@ -61,13 +61,14 @@ def test_prompt_section_says_what_is_remembered_and_what_to_ask():
                             promises=(PromiseView("2026-09-07", "broken"), PromiseView("2026-09-18", "kept"),
                                       PromiseView("2026-09-24", "open"))),
                 PartyMemory(key="bola", name="Bola", facts=(FactView("usual_order", "2 bags rice", None, None,
-                                                                     "inferred"),))],
+                                                                     "inferred",
+                                                                     data='{"payment": "cash", "last_amount": 90000}'),))],
         possible={"chidi": ["Chidi", "Mama Chidi"]},
         aliases_used={"mama c": "Mama Chidi"},
     )
     text = prompt_section(recalled)
     assert "Emeka: customer; 1 open debt; promised to pay by 2026-09-24; promises kept 1, broken 1" in text
-    assert "usual order: 2 bags rice (guessed from past sales; confirm)" in text
+    assert "usual order: 2 bags rice, last time ₦90,000, paid cash (guessed from past sales; confirm)" in text
     assert '"mama c" means Mama Chidi: record entries under "Mama Chidi"' in text
     assert '"chidi" could be Chidi or Mama Chidi: ask which' not in text  # weak here: not in `strong`
     assert '"chidi" is not Chidi or Mama Chidi: a different person unless the user says so' in text

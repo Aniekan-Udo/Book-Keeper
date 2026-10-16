@@ -63,6 +63,7 @@ class FactView:
     since: str | None
     confidence: str     # stated / inferred
     until: str | None = None
+    data: str | None = None   # JSON details (usual order: items, payment, last amount)
 
 
 @dataclass(frozen=True)

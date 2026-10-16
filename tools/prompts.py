@@ -23,7 +23,8 @@ ALERT_HINT = re.compile(
 # asking for a reminder, or who to chase
 REMINDER_HINT = re.compile(
     r"\bremind|\bmake\s+(s?he|dem)\s+pay\b|\bchase\b|\bwho\s+(i|should\s+i)\s+(suppose\s+|go\s+)?(chase|remind)"
-    r"|\bwho\s+never\s+pay\b",
+    r"|\bwho\s+never\s+pay\b"
+    r"|\bwhy\b.*\b(first|top|skip|skipped|last|chase)\b",
     re.IGNORECASE)
 
 HEADER = """You are the {role} of a bookkeeping assistant for Nigerian traders. Today is {weekday}, {today}.
@@ -76,7 +77,7 @@ COLLECTOR = """
 - If the user says no or changes the subject, don't send.
 - If remind_debtor_tool says the user asked not to remind someone, tell them so and ask; only if they clearly say yes, call it again with trader_confirmed=true.
 - "Who I suppose chase?" / who to remind first: who_to_chase_tool. Give the top few with their reasons, say who was skipped and why, and offer reminders.
-- "Why…?" (why someone is first, why skipped): explain_tool, then answer with the dates and the user's own words it returns."""
+- "Why is X first / skipped?": who_to_chase_tool gives the order and its rule (ranked_by: broken promises first, then days overdue, then amount) and each person's reasons. Answer with that rule and those reasons; explain_tool adds the history and the user's own words."""
 
 ALERTS = """
 ## Bank and POS alerts

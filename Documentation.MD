@@ -895,6 +895,7 @@ ledger, repeatedly, fixing what broke:
 | Day 4 rehearsal | An agent run took an hour, then every graph read timed out on dropped connections | D37, D39 |
 | Day 4 rehearsal | `gpt-oss-20b` wrote unparseable tool calls, and those tripped the circuit breaker | D38 |
 | Day 4 rehearsal | With recall down, "Chidi's mum" was filed as a new person (the name check needs recall) | D39 makes recall far less likely to fail; the gap is listed under limitations |
+| Oct 16, free tier, full stack in Docker | Six demo messages on both accounts in ~32,000 tokens: day 30 ranked Emeka by broken promises and skipped Pastor John in the trader's words, offered "2 bags rice, ₦90,000, cash" for the usual, matched `OKAFOR CHINYERE MARY` to Mama Chidi, recorded "Chidi's mum" under Mama Chidi, and refused to remind Pastor John; day 1 did none of these | Recall now passes the usual amount and payment; "why … first/skipped" goes to the Collector, which explains with the ranking rule; Opik no longer breaks on an empty `OPIK_URL_OVERRIDE` from compose |
 
 The final run: every claimed recording reached the ledger; "Chidi's mum" was asked about,
 learned as Mama Chidi's alias, then recognised without asking; Chidi stayed a separate
