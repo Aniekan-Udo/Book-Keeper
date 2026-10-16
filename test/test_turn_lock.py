@@ -25,12 +25,15 @@ async def test_same_user_waits_and_other_users_do_not(db_session):
 
 
 async def test_a_stuck_turn_gives_a_friendly_busy(db_session):
+    holding = asyncio.Event()
+
     async def stuck():
         async with user_turn_lock(db_session, 7):
+            holding.set()
             await asyncio.sleep(0.5)
 
     task = asyncio.create_task(stuck())
-    await asyncio.sleep(0.05)
+    await holding.wait()  # not a fixed delay: on a loaded machine the holder may start late
     with pytest.raises(TurnInProgress, match="still working on your last message"):
         async with user_turn_lock(db_session, 7, timeout=0.1):
             pass

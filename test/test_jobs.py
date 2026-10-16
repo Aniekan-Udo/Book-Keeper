@@ -223,7 +223,7 @@ async def test_the_worker_starts_wakes_and_stops(tmp_path):
             job_queue.stage(db, "work", 1, {})
             await db.commit()
         worker.wake()  # without this it would wait the full 30 s poll
-        await asyncio.wait_for(done.wait(), 5)
+        await asyncio.wait_for(done.wait(), 15)  # well under the 30 s poll, with slack for a slow machine
     finally:
         await worker.stop()
         await engine.dispose()
