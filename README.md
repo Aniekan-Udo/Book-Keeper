@@ -1,5 +1,7 @@
 # Book-Keeper: a bookkeeper that remembers
 
+[![tests](https://github.com/Aniekan-Udo/Book-Keeper/actions/workflows/tests.yml/badge.svg)](https://github.com/Aniekan-Udo/Book-Keeper/actions/workflows/tests.yml)
+
 A WhatsApp bookkeeping assistant for Nigerian market traders, with **graph memory on
 FalkorDB** shared by a small team of agents. Traders type (or voice-note) what happened in
 English or Pidgin, *"Emeka collect 2 bags beans, 60k. He go pay Monday"*, and it keeps the
@@ -9,6 +11,12 @@ books, chases debts and answers questions.
 
 > Book-Keeper only keeps records, reports and drafts reminders. It never receives, sends or
 > holds money.
+
+| Your books | Owed & owing |
+|---|---|
+| ![Books: money made, expenses and profit by period, what sold, who owes](docs/screenshots/books.png) | ![Owed & owing: each open balance with item, amount, paid, balance and due date](docs/screenshots/owed-and-owing.png) |
+| **The landing page** | **What it remembers, and where from** |
+| ![Landing page](docs/screenshots/landing.png) | ![A customer's promises, each with the trader's own message and the agent that saved it](docs/screenshots/memory.png) |
 
 ---
 
@@ -212,6 +220,9 @@ Then open `trader_<id>` in the FalkorDB Browser. Re-seed before recording:
 docker compose up -d falkordb   # the graph tests run against a real FalkorDB (skipped if none)
 uv run pytest                   # 367 tests (+4 that need a Postgres URL), no model calls
 ```
+
+CI (`.github/workflows/tests.yml`) runs all 371 against Postgres and FalkorDB on every push,
+plus a dependency CVE audit.
 
 The memory tests cover:
 - recall's name matching

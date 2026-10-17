@@ -1,0 +1,50 @@
+# Runs the whole test suite against the same engines as production: Postgres (the ledger,
+# advisory locks, the job queue) and FalkorDB (graph memory, pinned to the compose digest).
+# No model calls: the agents are scripted in tests, so this needs no API keys.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test" --health-interval 5s --health-timeout 5s --health-retries 10
+      falkordb:
+        image: falkordb/falkordb@sha256:107455e862a824e45e8e9f5a7fbfdf5e00a08b14e13eae2577c72fd9e3f59ba6
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://test:test@127.0.0.1:5432/test
+      TEST_LOCK_POSTGRES_URL: postgresql+asyncpg://test:test@127.0.0.1:5432/test
+      TEST_JOBS_POSTGRES_URL: postgresql+asyncpg://test:test@127.0.0.1:5432/test
+      FALKORDB_TEST_HOST: 127.0.0.1
+      GRAPH_MEMORY: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.3"
+          python-version: "3.11"
+      - run: uv sync --frozen
+      - name: Tests (Postgres + FalkorDB)
+        run: uv run pytest -q
+      - name: Dependency audit (known CVEs)
+        run: |
+          uv export --frozen --no-hashes --no-dev -q > requirements-audit.txt
+          uvx pip-audit -r requirements-audit.txt --no-deps --disable-pip
