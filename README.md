@@ -182,6 +182,9 @@ docker compose up --build       # Postgres, FalkorDB, the app → http://localho
 Without Docker for the app: `docker compose up -d postgres falkordb`, set `POSTGRES_URI` and
 `FALKORDB_HOST=127.0.0.1`, then `uv run python migrate.py` and `uv run uvicorn main:app --reload`.
 
+Free hosting (Render for the app and Postgres, FalkorDB Cloud for the graph):
+[`docs/DEPLOY-RENDER.md`](docs/DEPLOY-RENDER.md), with `render.yaml` as the Blueprint.
+
 ### The demo
 
 ```bash
@@ -218,10 +221,10 @@ Then open `trader_<id>` in the FalkorDB Browser. Re-seed before recording:
 
 ```bash
 docker compose up -d falkordb   # the graph tests run against a real FalkorDB (skipped if none)
-uv run pytest                   # 373 tests (+4 that need a Postgres URL), no model calls
+uv run pytest                   # 376 tests (+4 that need a Postgres URL), no model calls
 ```
 
-CI (`.github/workflows/tests.yml`) runs all 377 against Postgres and FalkorDB on every push,
+CI (`.github/workflows/tests.yml`) runs all 380 against Postgres and FalkorDB on every push,
 plus a dependency CVE audit.
 
 The curator's judgement is measured live with `uv run python -m tools.curator_eval`: 16
@@ -240,7 +243,7 @@ Live runs against the real model, and what they changed, are written up in
 
 ## Design notes
 
-- [`Documentation.MD` §9](Documentation.MD): architecture, design patterns, **52 numbered
+- [`Documentation.MD` §9](Documentation.MD): architecture, design patterns, **53 numbered
   decisions with their trade-offs**, error handling, log events, every Cypher statement,
   live-run findings, and known limitations.
 - [`docs/hackathon-design.md`](docs/hackathon-design.md): the product design: problem,

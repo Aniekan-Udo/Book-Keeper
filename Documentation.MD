@@ -958,6 +958,21 @@ matched; forget a person and the table kept their bank name. Now:
 - Why not the graph as the one store: graph memory is optional and can be down, and
   bookkeeping comes first; a forwarded alert must still find its debtor.
 
+**D53. Free hosting: Render + FalkorDB Cloud** (`render.yaml`, `docs/DEPLOY-RENDER.md`).
+No budget for hosting, so everything runs on free plans: the Docker image as a Render free
+web service, Render's free Postgres, and a FalkorDB Cloud free instance (Render can't host
+FalkorDB for free). Three small code changes make the image host-agnostic: `db.py` accepts
+a plain `postgres://` URL (or `DATABASE_URL`) and converts it for asyncpg, the container
+listens on `$PORT` if the host sets one, and FalkorDB takes an optional username and TLS
+(`FALKORDB_USERNAME`, `FALKORDB_SSL`).
+- Render's Postgres, not a pooled one (Neon/Supabase poolers): the per-user turn lock and
+  the job queue use session-level advisory locks, which transaction pooling breaks.
+- Trade-offs accepted for a demo: the free service sleeps after 15 minutes (an external
+  pinger on `/health` every 10 minutes keeps it awake, within the 750 free hours; `/health`
+  also pings FalkorDB, so the graph instance doesn't count as idle); the database expires
+  after 30 days; the free FalkorDB tier has no TLS and no backups (the graph can be rebuilt
+  from the ledger, learned memory can't). Not fit for real traders' data as is.
+
 ### 9.5 Error handling
 
 | Where | Fails how | What happens |

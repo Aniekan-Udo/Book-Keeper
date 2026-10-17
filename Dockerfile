@@ -31,5 +31,6 @@ EXPOSE 8001
 # don't let `uv run` add dev packages at startup. --proxy-headers: behind Caddy, take the
 # client's real IP from X-Forwarded-For (for per-IP rate limits) — only trusted because
 # the app's port is never published to the internet (see docker-compose.yml).
-# --no-server-header: don't advertise the server software and version.
-CMD ["sh", "-c", "uv run --no-sync python migrate.py && uv run --no-sync uvicorn main:app --host 0.0.0.0 --port 8001 --proxy-headers --forwarded-allow-ips='*' --no-server-header"]
+# --no-server-header: don't advertise the server software and version. PORT: hosts like
+# Render choose the port; 8001 otherwise.
+CMD ["sh", "-c", "uv run --no-sync python migrate.py && uv run --no-sync uvicorn main:app --host 0.0.0.0 --port ${PORT:-8001} --proxy-headers --forwarded-allow-ips='*' --no-server-header"]

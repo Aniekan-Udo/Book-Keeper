@@ -10,10 +10,17 @@ from sqlalchemy import MetaData, String, Date, Integer, Text, Float, ForeignKey,
 from dotenv import load_dotenv
 load_dotenv()
 
-POSTGRES_URI = os.getenv(
-    "POSTGRES_URI",
-    "postgresql+asyncpg://postgres:bookkeeper@postgres:5432/postgres"
-)
+def _async_url(url: str) -> str:
+    """Hosts (Render, Heroku, …) hand out plain postgres:// URLs; the app talks asyncpg,
+    which spells TLS `ssl=` rather than libpq's `sslmode=`."""
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            url = "postgresql+asyncpg://" + url[len(prefix):]
+    return url.replace("sslmode=", "ssl=")
+
+
+POSTGRES_URI = _async_url(os.getenv("POSTGRES_URI") or os.getenv("DATABASE_URL")
+                          or "postgresql+asyncpg://postgres:bookkeeper@postgres:5432/postgres")
 
 # Connections per process. Keep (processes × (DB_POOL_SIZE + DB_MAX_OVERFLOW)) under the
 # server's max_connections (Postgres default: 100), leaving room for migrations and admin.

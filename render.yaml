@@ -1,0 +1,80 @@
+# Render Blueprint: the app and its Postgres on Render's free plans. FalkorDB isn't on
+# Render: use a FalkorDB Cloud free instance and paste its details when asked.
+# Step by step: docs/DEPLOY-RENDER.md
+services:
+  - type: web
+    name: book-keeper
+    runtime: docker
+    plan: free
+    region: frankfurt          # closest Render region to Nigeria; the database must match
+    branch: roadmap
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # Render's internal connection string; db.py converts it for asyncpg
+      - key: POSTGRES_URI
+        fromDatabase:
+          name: book-keeper-db
+          property: connectionString
+
+      # graph memory: FalkorDB Cloud (free tier: no TLS, so FALKORDB_SSL stays false)
+      - key: GRAPH_MEMORY
+        value: falkordb
+      - key: FALKORDB_HOST
+        sync: false
+      - key: FALKORDB_PORT
+        sync: false
+      - key: FALKORDB_USERNAME
+        sync: false
+      - key: FALKORDB_PASSWORD
+        sync: false
+      - key: FALKORDB_SSL
+        value: "false"
+      - key: FALKORDB_TIMEOUT_SECONDS
+        value: "10"            # a cloud hop, not a container next door
+
+      # models: OpenRouter for chat and the curator; Groq for voice notes and screenshots
+      - key: LLM_MODEL
+        value: openrouter:openai/gpt-oss-120b
+      - key: CURATOR_MODEL
+        value: openrouter:openai/gpt-oss-120b
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_PROVIDERS
+        value: groq,cerebras
+      - key: OPENROUTER_REASONING_EFFORT
+        value: medium
+      - key: GROQ_API_KEY
+        sync: false
+      - key: LLM_TURN_TIMEOUT
+        value: "90"
+
+      # the web: HTTPS on onrender.com, so secure cookies
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: APP_PUBLIC_URL
+        sync: false            # https://<service-name>.onrender.com, once you know it
+      - key: DEMO_ACCOUNTS
+        value: "true"          # one-click login to the seeded demo accounts, for judges
+      - key: ENABLE_API_DOCS
+        value: "false"
+
+      # small instance (512 MB, shared CPU) and a small database: keep pools modest
+      - key: DB_POOL_SIZE
+        value: "5"
+      - key: DB_MAX_OVERFLOW
+        value: "5"
+      - key: JOB_QUEUE
+        value: durable
+      - key: JOB_WORKERS
+        value: "2"
+
+      # optional, add later in the dashboard: OPIK_API_KEY, OPIK_WORKSPACE (traces)
+
+databases:
+  - name: book-keeper-db
+    plan: free                 # 1 GB; expires 30 days after creation (14 days' grace)
+    region: frankfurt
+    databaseName: bookkeeper
+    user: bookkeeper
+    ipAllowList: []            # internal only; add your IP (or 0.0.0.0/0 briefly) to seed from your PC

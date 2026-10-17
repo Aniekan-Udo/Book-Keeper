@@ -329,12 +329,13 @@ class FalkorGraphMemory:
     enabled = True
 
     def __init__(self, host: str = "127.0.0.1", port: int = 6379, password: str | None = None,
-                 timeout_seconds: float = 5.0, graph_prefix: str = "trader_"):
+                 timeout_seconds: float = 5.0, graph_prefix: str = "trader_",
+                 username: str | None = None, ssl: bool = False):
         # Timeouts keep a hung store from piling up tasks. Keepalive plus a health check on
         # connections idle for 30 s: a pooled connection left idle (e.g. across a laptop
         # sleep, or by a NAT/Docker proxy dropping quiet TCP) is checked before reuse
         # instead of timing out on the next query.
-        self._client_kwargs = dict(host=host, port=port, password=password or None,
+        self._client_kwargs = dict(host=host, port=port, username=username, password=password or None, ssl=ssl,
                                    socket_timeout=timeout_seconds, socket_connect_timeout=timeout_seconds,
                                    socket_keepalive=True, health_check_interval=30)
         self._db: FalkorDB | None = None  # built on first use, see _client()

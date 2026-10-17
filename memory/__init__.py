@@ -4,7 +4,9 @@
     FALKORDB_HOST       default 127.0.0.1 (docker-compose sets falkordb). Not "localhost":
                         on Windows that tries IPv6 first and Docker only listens on IPv4
     FALKORDB_PORT       default 6379
+    FALKORDB_USERNAME   optional (FalkorDB Cloud gives a username and a password)
     FALKORDB_PASSWORD   optional
+    FALKORDB_SSL        true for TLS (FalkorDB Cloud paid tiers; the free tier has none)
     FALKORDB_TIMEOUT_SECONDS  default 5
 
 Layout (ports and adapters):
@@ -46,6 +48,8 @@ def build_graph_memory() -> GraphMemory:
     timeout = float(os.getenv("FALKORDB_TIMEOUT_SECONDS", "5"))
     logger.info("graph_memory.falkordb", host=host, port=port)
     return FalkorGraphMemory(host=host, port=port, password=os.getenv("FALKORDB_PASSWORD"),
+                             username=os.getenv("FALKORDB_USERNAME") or None,
+                             ssl=os.getenv("FALKORDB_SSL", "false").strip().lower() in ("1", "true", "yes"),
                              timeout_seconds=timeout)
 
 
