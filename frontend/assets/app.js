@@ -31,10 +31,35 @@ function esc(s) {
 }
 /* The assistant writes WhatsApp-style text: **bold** or *bold*, "- " bullets, line breaks.
    Escape first, then add only those few tags, so nothing in a reply can inject HTML. */
+const TABLE_ROW = /^\s*\|.*\|\s*$/;
+const TABLE_RULE = /^\s*\|[\s:|-]+\|\s*$/;
+function table(rows) {
+  // a markdown table the model wrote: first row is the header, the |---| rule is dropped
+  const cells = (r) => r.trim().slice(1, -1).split('|').map(c => c.trim());
+  const body = rows.filter(r => !TABLE_RULE.test(r));
+  const [head, ...rest] = body;
+  return '<div class="table-wrap"><table class="table chat-table"><thead><tr>'
+    + cells(head).map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>'
+    + rest.map(r => '<tr>' + cells(r).map(c => `<td>${c}</td>`).join('') + '</tr>').join('')
+    + '</tbody></table></div>';
+}
 function rich(text) {
   const lines = esc(text).split('\n');
   let html = '', list = false;
-  for (const raw of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    if (TABLE_ROW.test(raw)) {
+      // gather the table, allowing blank lines between its rows
+      const rows = [];
+      while (i < lines.length && (TABLE_ROW.test(lines[i]) || (!lines[i].trim() && TABLE_ROW.test(lines[i + 1] || '')))) {
+        if (lines[i].trim()) rows.push(lines[i]);
+        i++;
+      }
+      i--;
+      if (list) { html += '</ul>'; list = false; }
+      html += table(rows.map(r => r.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')));
+      continue;
+    }
     const line = raw.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/(^|\W)\*(\S[^*]*?)\*(?=\W|$)/g, '$1<strong>$2</strong>');
     const bullet = line.match(/^\s*(?:[-•]|\d+\.)\s+(.*)$/);
     if (bullet) { if (!list) { html += '<ul>'; list = true; } html += `<li>${bullet[1]}</li>`; continue; }

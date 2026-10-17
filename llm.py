@@ -22,6 +22,7 @@ under a provider quota. Calls wait rather than fail.
 import os
 from functools import lru_cache
 
+import httpx
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
@@ -44,6 +45,15 @@ def _rate_limiter() -> InMemoryRateLimiter | None:
 
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+# Idle connections are dropped after this many seconds instead of being reused. On Render, the
+# first message after a quiet spell took ~40 s: a pooled connection had died while idle, the
+# request waited out the whole timeout, then the retry worked. A fresh connection costs a TLS
+# handshake (a fraction of a second).
+KEEPALIVE_SECONDS = float(os.getenv("LLM_KEEPALIVE_SECONDS", "20"))
+
+
+def _http_client(timeout: int) -> httpx.AsyncClient:
+    return httpx.AsyncClient(timeout=timeout, limits=httpx.Limits(keepalive_expiry=KEEPALIVE_SECONDS))
 
 
 def _openrouter_providers() -> dict:
@@ -70,6 +80,7 @@ def _build(model: str, timeout: int) -> BaseChatModel:
                                max_retries=2, rate_limiter=_rate_limiter(),
                                base_url=os.getenv("OPENROUTER_BASE_URL", OPENROUTER_BASE_URL),
                                api_key=os.getenv("OPENROUTER_API_KEY"),
+                               http_async_client=_http_client(timeout),
                                extra_body={"provider": _openrouter_providers(),
                                            "reasoning": {"effort": os.getenv("OPENROUTER_REASONING_EFFORT", "medium")}})
     return init_chat_model(model, temperature=0, timeout=timeout, max_retries=2, rate_limiter=_rate_limiter())
@@ -77,7 +88,8 @@ def _build(model: str, timeout: int) -> BaseChatModel:
 
 @lru_cache(maxsize=1)
 def get_chat_model() -> BaseChatModel:
-    return _build(os.getenv("LLM_MODEL", DEFAULT_MODEL), timeout=30)
+    # a normal call takes 1-3 s: a stalled one is cut off and retried well before the trader gives up
+    return _build(os.getenv("LLM_MODEL", DEFAULT_MODEL), timeout=20)
 
 
 @lru_cache(maxsize=1)

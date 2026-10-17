@@ -166,6 +166,8 @@ body { overflow: hidden; }
 .debtor-head .name button:hover { color: var(--green-700); text-decoration: underline; }
 .debtor-head .bal { font-size: 18px; font-weight: 750; }
 .debtor .table td, .debtor .table th { padding: 8px 8px; }
+.bubble .chat-table { margin: 6px 0; font-size: 14px; }
+.bubble .chat-table th, .bubble .chat-table td { padding: 6px 8px; }
 .due-ok { color: var(--ink-2); }
 .due-late { color: var(--red-600); font-weight: 600; }
 .debtor-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
