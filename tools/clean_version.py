@@ -1,3 +1,4 @@
+import re
 from contextlib import asynccontextmanager
 from datetime import date as date_type, datetime, timezone
 from typing import Callable, Optional, Literal
@@ -14,6 +15,7 @@ from tools.contacts import save_contact
 from tools.expenses import get_expenses
 from tools.formatting import format_naira
 from tools.generate_PnL import generate_pnl
+from tools.parties import find_party_id
 from tools.ledger import (
     LedgerError, TransactionInput, correct_transaction, delete_transactions, persist_transactions,
 )
@@ -73,11 +75,27 @@ def _describe_for_user(r: TransactionORM) -> str:
     return f"#{r.id}: {line} on {day}"
 
 
+# titles the model may add or drop around a name the trader wrote ("Okon" → "Mr Okon")
+_TITLES = {"mr", "mrs", "miss", "ms", "madam", "dr", "chief", "alhaji", "alhaja", "pastor", "aunty", "auntie",
+           "uncle", "oga", "bros", "brother", "sister", "iya", "baba", "mama", "papa"}
+
+
+def _name_words(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", text.lower().replace("’", "'").replace("'s", "")))
+
+
+def written_by_user(name: str, heard: str) -> bool:
+    """Did the trader write this name? Every word of it, titles aside, must appear in what
+    they said. A name the model made up or misspelt ("Emessa" for "Emeka") fails."""
+    words = _name_words(name) - _TITLES
+    return words <= _name_words(heard) if words else True
+
+
 # ── factory: builds tools bound to a specific db session and user ──
 def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = None,
                 request_started_at: datetime | None = None, touched: list | None = None,
                 could_be: Callable[[str], list[str]] | None = None, last_reply: str = "",
-                memory_notes: list | None = None):
+                memory_notes: list | None = None, heard: str | None = None):
     """`clarifications`, if given, collects amount prompts raised during this request so the
     endpoint can hand them to the client as structured data, not just reply text.
     `request_started_at` stops a reminder drafted in this request from also being sent in it.
@@ -89,7 +107,10 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
     `last_reply` is the assistant's previous message: a name only counts as confirmed new
     if that message asked about it (the model can't wave its own guess through).
     `memory_notes`, if given, collects what tools want remembered (a confirmed bank name, a
-    sent reminder); the curator writes them once the message is saved."""
+    sent reminder); the curator writes them once the message is saved.
+    `heard`, if given, is what the trader wrote in this message and the recent ones (and the
+    question they're answering): a person new to the books is only recorded under a name
+    the trader actually wrote, so a misspelt or invented name can't become a new person."""
     started = request_started_at or datetime.now(timezone.utc)
     # people a refused name might be: blocked for the rest of this request, so the agent
     # asks the user instead of picking one of them itself
@@ -128,6 +149,13 @@ def build_tools(db: AsyncSession, user_id: int, clarifications: list | None = No
                 if key in unresolved:
                     return {"error": (f'Nothing recorded yet: the user hasn\'t said whether "{unresolved[key]}" '
                                       f"is {t.party}. Ask them first.")}
+        if heard is not None:
+            for t in transactions:
+                if (t.party and not written_by_user(t.party, heard)
+                        and await find_party_id(db, user_id, t.party) is None):
+                    return {"error": (f'Nothing recorded yet: the user never wrote "{t.party}". Use the name '
+                                      "exactly as they wrote it; if they didn't name anyone, leave the party "
+                                      "empty or ask who it was.")}
         result = await persist_transactions(db, transactions, user_id)
         if clarifications is not None:
             clarifications.extend(result["clarifications"])

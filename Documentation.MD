@@ -980,6 +980,16 @@ demo can't be seeded from a PC. With `SEED_DEMO=true` the container runs
 none, or one (a seed cut off halfway) → recreate them. A failed seed is logged and the app
 starts anyway. Free to repeat: the seed calls no model. Costs a few minutes on the first start.
 
+**D55. A new person is only recorded under a name the trader wrote.** Live run, Oct 17: "I
+sell 1 bag beans to Emeka 40k" came back as a sale to "Emessa". D24 only catches names that
+*resemble* someone known; a name the model misspells or invents resembles no one, so it
+went through as a new person and Emeka's debt would split. Now the record tool refuses a
+party that isn't already in the books unless every word of it (titles like Mr, Mama, Iya
+aside) appears in what the trader wrote: this message, their recent ones, or the question
+they're answering. Voice notes and screenshots reach the tool as text, so they're covered.
+*Trade-off:* a trader's typo the model silently corrects ("Emkea" → "Emeka") is fine when
+Emeka is known; for a brand-new person the model has to use the spelling as written.
+
 ### 9.5 Error handling
 
 | Where | Fails how | What happens |

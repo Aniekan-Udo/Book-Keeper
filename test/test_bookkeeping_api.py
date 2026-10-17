@@ -94,7 +94,7 @@ async def test_user_id_in_body_is_ignored(new_browser, fake_llm):
     await signed_up(new_browser, email="bola@example.com")
 
     fake_llm.append({"type": "sale", "direction": "in", "party": "Emeka", "item": "rice"})
-    response = await ada.post("/api/v1/message", json={"message": "I sold rice", "user_id": 2})
+    response = await ada.post("/api/v1/message", json={"message": "I sold rice to Emeka", "user_id": 2})
     assert response.status_code == 200
     txn_id = response.json()["clarifications"][0]["transaction_id"]
 
@@ -109,7 +109,7 @@ async def test_cannot_clarify_another_users_transaction(new_browser, fake_llm):
     bola = await signed_up(new_browser, email="bola@example.com")
 
     fake_llm.append({"type": "sale", "direction": "in", "party": "Emeka", "item": "rice"})
-    response = await ada.post("/api/v1/message", json={"message": "I sold rice"})
+    response = await ada.post("/api/v1/message", json={"message": "I sold rice to Emeka"})
     txn_id = response.json()["clarifications"][0]["transaction_id"]
 
     stolen = await bola.post("/api/v1/clarify", json={"transaction_id": txn_id, "amount": 1})

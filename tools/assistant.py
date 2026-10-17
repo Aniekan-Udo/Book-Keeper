@@ -72,6 +72,8 @@ async def respond(db: AsyncSession, user_id: int, text: str, channel: str) -> As
         started = datetime.now(timezone.utc)
         history = await load_history(db, user_id)
         recalled = await recall(get_graph_memory(), user_id, text)  # never raises
+        last_reply = next((h["content"] for h in reversed(history) if h["role"] == "assistant"), "")
+        heard = " ".join([*(h["content"] for h in history if h["role"] == "user"), last_reply, text])
 
         clarifications: list[dict] = []
         touched: list[dict] = []
@@ -80,10 +82,8 @@ async def respond(db: AsyncSession, user_id: int, text: str, channel: str) -> As
         ctx = TurnContext(
             text=text, channel=channel, history=history, user_id=user_id,
             tools=build_tools(db, user_id, clarifications, request_started_at=started, touched=touched,
-                              could_be=recalled.could_be,
-                              last_reply=next((h["content"] for h in reversed(history) if h["role"] == "assistant"),
-                                              ""),
-                              memory_notes=notes),
+                              could_be=recalled.could_be, last_reply=last_reply, memory_notes=notes,
+                              heard=heard),
             pending_amounts=await pending_amounts(db, user_id),
             reminder_drafts=await pending_drafts(db, user_id),
             pending_alerts=await pending_alerts(db, user_id),

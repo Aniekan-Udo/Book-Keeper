@@ -436,6 +436,32 @@ async def test_a_new_person_sharing_a_word_with_someone_known_is_not_blocked(db_
     assert result["logged"][0]["party"] == "Chidi"
 
 
+async def test_a_new_person_is_only_recorded_under_a_name_the_trader_wrote(db_session, test_user):
+    """Live run, Oct 17: "I sell 1 bag beans to Emeka 40k" was recorded for "Emessa". A
+    name new to the books must be one the trader wrote; known people and titles are fine."""
+    from tools.clean_version import build_tools, written_by_user
+
+    heard = "I sell 1 bag beans to Emeka 40k, he go pay next week"
+    extract = {t.name: t for t in build_tools(db_session, test_user.id, [], heard=heard)}["extract_transactions_tool"]
+    sale = {"type": "sale", "item": "beans", "amount": 40000, "amount_paid": 0, "direction": "in"}
+
+    misspelt = await extract.ainvoke({"transactions": [{**sale, "party": "Emessa"}]})
+    assert 'never wrote "Emessa"' in misspelt["error"] and "Nothing recorded" in misspelt["error"]
+    written = await extract.ainvoke({"transactions": [{**sale, "party": "Emeka"}]})
+    assert written["logged"][0]["party"] == "Emeka"
+
+    # someone already in the books can be named from earlier context ("he pay 5k")
+    later = {t.name: t for t in build_tools(db_session, test_user.id, [], heard="he pay 5k today")}
+    repaid = await later["extract_transactions_tool"].ainvoke({"transactions": [
+        {"type": "debt_repayment", "party": "Emeka", "amount": 5000, "direction": "in"}]})
+    assert repaid["logged"][0]["party"] == "Emeka"
+
+    assert written_by_user("Mr Okon", "okon buy 2 crates egg")
+    assert written_by_user("Mama Chidi", "Chidi's mum pay 30k") is True  # D24 decides this one
+    assert written_by_user("Iya Bisi", "iya bisi collect 2 bags")
+    assert not written_by_user("Emessa", heard)
+
+
 def test_a_possessive_touching_a_known_name_is_strong():
     """"Chidi's mum" when only Mama Chidi is known: a reference to someone, so ask."""
     _, possible, _, strong = match_names("Chidi's mum take 2 bags garri", known("Mama Chidi"))
