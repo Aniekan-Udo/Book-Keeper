@@ -27,7 +27,7 @@ The ledger is in Postgres; the graph can always be rebuilt from it
    - `FALKORDB_HOST`, `FALKORDB_PORT`, `FALKORDB_USERNAME`, `FALKORDB_PASSWORD`: from step 1
    - `OPENROUTER_API_KEY`: your OpenRouter key
    - `GROQ_API_KEY`: for voice notes and screenshots (the free Groq key is enough)
-   - `APP_PUBLIC_URL`: `https://book-keeper.onrender.com` (if that name is taken, Render adds a
+   - `APP_PUBLIC_URL`: `https://book-keeper-em6x.onrender.com` (if that name is taken, Render adds a
      suffix: fix it here after the first deploy)
 4. **Apply.** The first build takes a few minutes. On start the app creates its tables
    (`migrate.py`), then serves. Check `https://<your-service>.onrender.com/health`:
@@ -44,6 +44,10 @@ no cost. Expect the first start to take a few minutes longer.
 - `DEMO_PASSWORD` is the password for both accounts. If your Blueprint was created before this
   setting existed, add it in the service's **Environment** tab (without it, a random password
   is printed in the deploy logs).
+- **To reset the demo** (judges' and rehearsal chats pile up in the two shared accounts):
+  set `SEED_DEMO` to `reset` in the Environment tab and save; Render redeploys and the start
+  recreates both accounts from the scenario. Then set it back to `true` (another redeploy,
+  which leaves them alone).
 - In the logs look for `ngozi.day30@example.com: user …`, or `Demo accounts already seeded.`
   If FalkorDB can't be reached, the log says `Demo seed failed, starting anyway`: fix the
   `FALKORDB_*` values and redeploy, and the next start seeds.

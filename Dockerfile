@@ -35,6 +35,7 @@ EXPOSE 8001
 # the app's port is never published to the internet (see docker-compose.yml).
 # --no-server-header: don't advertise the server software and version. PORT: hosts like
 # Render choose the port; 8001 otherwise. SEED_DEMO=true: create the demo accounts on start
-# if they aren't there (hosts whose database can't be reached from outside); a failed seed
-# is logged and the app still starts.
-CMD ["sh", "-c", "uv run --no-sync python migrate.py && { [ \"$SEED_DEMO\" != true ] || uv run --no-sync python -m scripts.seed_demo --if-missing || echo 'Demo seed failed, starting anyway'; } && uv run --no-sync uvicorn main:app --host 0.0.0.0 --port ${PORT:-8001} --proxy-headers --forwarded-allow-ips='*' --no-server-header"]
+# if they aren't there (hosts whose database can't be reached from outside); SEED_DEMO=reset:
+# recreate them on every start (set it, let it deploy once, set it back to true). A failed
+# seed is logged and the app still starts.
+CMD ["sh", "-c", "uv run --no-sync python migrate.py && { case \"$SEED_DEMO\" in true) uv run --no-sync python -m scripts.seed_demo --if-missing ;; reset) uv run --no-sync python -m scripts.seed_demo --reset ;; esac || echo 'Demo seed failed, starting anyway'; } && uv run --no-sync uvicorn main:app --host 0.0.0.0 --port ${PORT:-8001} --proxy-headers --forwarded-allow-ips='*' --no-server-header"]

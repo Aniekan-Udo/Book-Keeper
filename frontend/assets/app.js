@@ -61,7 +61,7 @@ function rich(text) {
       continue;
     }
     const line = raw.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/(^|\W)\*(\S[^*]*?)\*(?=\W|$)/g, '$1<strong>$2</strong>');
-    const bullet = line.match(/^\s*(?:[-•]|\d+\.)\s+(.*)$/);
+    const bullet = line.match(/^\s*(?:[-•*]|\d+\.)\s+(.*)$/);
     if (bullet) { if (!list) { html += '<ul>'; list = true; } html += `<li>${bullet[1]}</li>`; continue; }
     if (list) { html += '</ul>'; list = false; }
     html += line.trim() ? `<p>${line}</p>` : '';
