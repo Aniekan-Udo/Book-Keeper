@@ -254,13 +254,13 @@ Live runs against the real model, and what they changed, are written up in
 ## Use of AI assistance
 
 Disclosed as Rule 11 requires:
-- **By the team:** the product, the problem, the track, the design (memory types, agents,
-  the custom-graph-over-Graphiti decision) and the scenario were decided by the team.
+- **By me:** the product, the problem, the track, the design (memory types, agents, the
+  custom-graph-over-Graphiti decision) and the scenario. Book-Keeper is a solo project.
 - **By Claude Code (Anthropic):** the code and documentation were written with it, during
   the event.
-- **Checked by the team:** every phase was reviewed and tested by the team. That covers the
-  test suite, plus live runs against the real model and FalkorDB whose failures were fixed
-  and are recorded in Documentation.MD §9.9.
+- **Checked by me:** every phase was reviewed and tested: the test suite, plus live runs
+  against the real model and FalkorDB whose failures were fixed and are recorded in
+  Documentation.MD §9.9.
 
 ## Security
 

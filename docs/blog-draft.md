@@ -11,7 +11,7 @@ For a long time it had the memory of a goldfish: the last eight messages, for th
 minutes. After that, every conversation started from zero. It didn't know that "Chidi's
 mum" is Mama Chidi, that Emeka has broken three of his four promises to pay, or that Ngozi
 had asked it never to chase Pastor John. A human bookkeeper learns those things in a week.
-For Graph Hacks, we taught ours.
+For Graph Hacks, I taught mine.
 
 ## Why a graph, and not a vector store
 
@@ -70,27 +70,27 @@ And anything that can be computed isn't left to the model at all:
 - "Who to chase" is a sort over broken promises, days overdue and amount, so the answer to
   "why Emeka first?" matches the ranking exactly.
 
-We considered Graphiti, which runs nicely on FalkorDB and Groq, and kept it for a later
+I considered Graphiti, which runs nicely on FalkorDB and Groq, and kept it for a later
 "tell me about…" recall layer. For Book-Keeper's core, memory drives decisions, and
 decisions need exact state, not similar-sounding sentences.
 
-## What the live runs taught us
+## What the live runs taught me
 
-Unit tests with scripted models all passed. Then we ran the scenario against the real
+Unit tests with scripted models all passed. Then I ran the scenario against the real
 model, and it broke in instructive ways:
 
 - **It claimed work it didn't do.** "I don add sale: Pastor John…", with nothing in the
   ledger. Now, if a reply claims a recording and no ledger tool ran, the agent is re-run
   and told so.
 - **It split and merged customers.** It recorded "Chidi's mum" as a brand-new person. When
-  we hinted harder, it filed Chidi's ₦2,000 under Mama Chidi instead. The fix was in code:
+  I hinted harder, it filed Chidi's ₦2,000 under Mama Chidi instead. The fix was in code:
   a new name that *strongly* resembles someone known (a possessive, a short form) is
   refused until the trader says who they mean. A single shared word is only a hint, and
   the hint says "a different person". The model even learned to "confirm" a name itself to
   get past the refusal, so a confirmation now only counts if the previous message asked.
 - **The graph engine had opinions.** In FalkorDB, after a `WITH … collect()`, an
   `OPTIONAL MATCH` with a property filter matched nothing. Every open-debt count came back
-  zero until we filtered in Python instead.
+  zero until I filtered in Python instead.
 - **Infrastructure is part of memory.** Idle connections died quietly, and a provider
   slowdown could hold a trader's message for minutes. Keepalive, health checks, read-only
   queries with a retry, and a hard ceiling on each agent run fixed that.
