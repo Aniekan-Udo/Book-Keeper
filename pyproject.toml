@@ -17,6 +17,7 @@ dependencies = [
     "langchain-openai>=1.7.2",
     "langgraph>=0.3.0",
     "opik>=2.2.80",
+    "phonenumbers>=9.0.41",
     "pwdlib[argon2]>=0.3.0",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
