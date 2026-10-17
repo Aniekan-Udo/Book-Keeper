@@ -29,3 +29,13 @@ def test_openrouter_connections_are_not_reused_after_sitting_idle(monkeypatch):
     pool = model.http_async_client._transport._pool
     assert pool._keepalive_expiry == llm.KEEPALIVE_SECONDS <= 30
     assert model.http_async_client.timeout.read == 20
+
+
+def test_warm_up_builds_the_models_before_the_first_message_and_never_raises(monkeypatch):
+    built = []
+    monkeypatch.setattr(llm, "get_chat_model", lambda: built.append("chat"))
+    def broken():
+        raise ValueError("no key")
+    monkeypatch.setattr(llm, "get_curator_model", broken)
+    llm.warm_up()  # the curator failing doesn't stop startup
+    assert built == ["chat"]

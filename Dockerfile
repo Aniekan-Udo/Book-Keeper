@@ -11,9 +11,11 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/
 # Install uv (pinned: a new upstream release can't change the build unnoticed)
 COPY --from=ghcr.io/astral-sh/uv:0.10.3 /uv /uvx /bin/
 
-# Copy dependency files first for better layer caching
+# Copy dependency files first for better layer caching. UV_COMPILE_BYTECODE: compile the
+# packages once here, since the app never writes bytecode at runtime (PYTHONDONTWRITEBYTECODE
+# below); without it every start recompiles them from source, slow on a small cloud CPU.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN UV_COMPILE_BYTECODE=1 uv sync --frozen --no-dev
 
 # Copy the rest of the app
 COPY . .

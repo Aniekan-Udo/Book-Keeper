@@ -17,7 +17,7 @@ from authentication.settings import settings
 from channels import whatsapp
 from db import User, engine, get_db, get_db_session
 from endpoints import dashboard, demo, login, logout, registration, statements, whatsapp_auth
-from llm import get_curator_model
+from llm import get_curator_model, warm_up as warm_up_models
 from memory import build_graph_memory, get_graph_memory, set_curator, set_graph_memory
 from memory.curator import Curator
 from memory.models import GraphMemoryError
@@ -36,6 +36,7 @@ from utils import get_cached_response, limiter, logger, store_response
 async def lifespan(_: FastAPI):
     """Start graph memory. If FalkorDB is unreachable the app still starts: the ledger
     never depends on the graph; memory features catch up via scripts/rebuild_graph.py."""
+    warm_up_models()  # before serving: otherwise the first message pays for importing the model client
     memory = build_graph_memory()
     set_graph_memory(memory)
     graph_sync = GraphSync(memory, get_db)

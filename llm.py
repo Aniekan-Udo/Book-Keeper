@@ -28,6 +28,8 @@ from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from langchain_core.rate_limiters import InMemoryRateLimiter
 
+from utils import logger
+
 load_dotenv()
 
 DEFAULT_MODEL = "groq:openai/gpt-oss-120b"
@@ -84,6 +86,17 @@ def _build(model: str, timeout: int) -> BaseChatModel:
                                extra_body={"provider": _openrouter_providers(),
                                            "reasoning": {"effort": os.getenv("OPENROUTER_REASONING_EFFORT", "medium")}})
     return init_chat_model(model, temperature=0, timeout=timeout, max_retries=2, rate_limiter=_rate_limiter())
+
+
+def warm_up() -> None:
+    """Build the chat and curator models now, at startup, instead of in the first trader's
+    message. Building one imports the provider's client library (for OpenRouter, the OpenAI
+    SDK: thousands of classes), about 10 s here and ~40 s on a small cloud CPU."""
+    for build in (get_chat_model, get_curator_model):
+        try:
+            build()
+        except Exception as e:  # a missing key shouldn't stop the server; the first message will say
+            logger.warning("llm.warm_up_failed", model=build.__name__, error=type(e).__name__)
 
 
 @lru_cache(maxsize=1)
