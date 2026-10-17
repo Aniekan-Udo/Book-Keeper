@@ -3,7 +3,10 @@ env vars only — `provider:model`, as LangChain's init_chat_model takes them.
 
     LLM_MODEL            the agent, and parsing forwarded alert text
                          default groq:openai/gpt-oss-120b         (GROQ_API_KEY)
-                         e.g.    google_genai:gemini-3.8-flash    (GOOGLE_API_KEY)
+                         e.g.    openrouter:openai/gpt-oss-120b   (OPENROUTER_API_KEY) the same
+                                 open model, from whichever host is cheapest/up (OpenRouter fails
+                                 over between them)
+                                 google_genai:gemini-3.8-flash    (GOOGLE_API_KEY)
     VISION_MODEL         reading alert screenshots; must accept images
                          default groq:qwen/qwen3.8-27b
     CURATOR_MODEL        the memory curator (memory/curator.py), which runs after each reply
@@ -40,9 +43,18 @@ def _rate_limiter() -> InMemoryRateLimiter | None:
     return InMemoryRateLimiter(requests_per_second=float(rpm) / 60, check_every_n_seconds=0.2, max_bucket_size=1)
 
 
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+
 def _build(model: str, timeout: int) -> BaseChatModel:
     if model.startswith("google_genai:") and not os.getenv("GOOGLE_API_KEY") and os.getenv("GEMINI_API_KEY"):
         os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
+    if model.startswith("openrouter:"):
+        # OpenRouter speaks the OpenAI API: same client, its own address and key
+        return init_chat_model("openai:" + model.removeprefix("openrouter:"), temperature=0, timeout=timeout,
+                               max_retries=2, rate_limiter=_rate_limiter(),
+                               base_url=os.getenv("OPENROUTER_BASE_URL", OPENROUTER_BASE_URL),
+                               api_key=os.getenv("OPENROUTER_API_KEY"))
     return init_chat_model(model, temperature=0, timeout=timeout, max_retries=2, rate_limiter=_rate_limiter())
 
 

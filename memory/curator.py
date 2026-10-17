@@ -400,8 +400,17 @@ class Curator:
         tracer = self._tracer_factory(turn.user_id, turn.channel) if self._tracer_factory else None
         config = {"run_name": "memory curator", **({"callbacks": [tracer]} if tracer else {})}
         try:
-            model = _structured(self._model_factory())
-            result = await model.ainvoke([SystemMessage(INSTRUCTIONS), HumanMessage(context)], config=config)
+            messages = [SystemMessage(INSTRUCTIONS), HumanMessage(context)]
+            base = self._model_factory()
+            try:
+                result = await _structured(base).ainvoke(messages, config=config)
+            except Exception as e:
+                if _empty_answer_rejected(e) or provider_problem(e):
+                    raise
+                # some hosts (e.g. behind OpenRouter) don't take JSON-schema output for every
+                # model: one more try with plain tool calling before giving up on this turn
+                logger.info("curator.json_schema_fallback", user_id=turn.user_id, error=type(e).__name__)
+                result = await base.with_structured_output(CuratorOutput).ainvoke(messages, config=config)
         except Exception as e:
             if _empty_answer_rejected(e):
                 # the model meant "nothing to remember" but wrote [] instead of {"ops": []}

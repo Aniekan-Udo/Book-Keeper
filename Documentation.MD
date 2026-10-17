@@ -872,6 +872,18 @@ To re-run: `uvx pip-audit`, `uvx bandit -r . -x ./.venv,./test`, Semgrep and Tri
 Docker images, and ZAP via `ghcr.io/zaproxy/zaproxy:stable` (`zap-baseline.py`,
 `zap-api-scan.py` against `/openapi.json` with `ENABLE_API_DOCS=true`).
 
+**D48. A second model provider: OpenRouter, same model.** Groq's paid tier couldn't be
+bought ("Developer tier upgrades are temporarily unavailable due to high demand"), and its
+free tier (200,000 tokens/day) covers about two full demo rehearsals. `gpt-oss-120b` is an
+open-weight model hosted by many companies, so `LLM_MODEL=openrouter:openai/gpt-oss-120b`
+(with `OPENROUTER_API_KEY`) runs the model we validated, at listed prices around $0.03-0.15
+per million input tokens, with OpenRouter failing over between hosts. It speaks the OpenAI
+API, so it uses `langchain-openai` with OpenRouter's address (`llm.py`). The curator asks for
+JSON-schema output first and, if a host rejects that, retries once with tool calling.
+Switching back to Groq is the same one-line setting.
+*Trade-off:* a request may land on different hosts behind OpenRouter, whose speed and
+quirks vary. Rehearse the demo on it before recording.
+
 ### 9.5 Error handling
 
 | Where | Fails how | What happens |
@@ -975,7 +987,8 @@ All in `memory/falkor.py`:
   `trader_<user_id>`.
 - Settings: `GRAPH_MEMORY` (`falkordb` / `off`), `FALKORDB_HOST`, `FALKORDB_PORT`,
   `FALKORDB_PASSWORD`, `FALKORDB_TIMEOUT_SECONDS` (default 5), `FALKORDB_BROWSER`,
-  `CURATOR_MODEL`, `LLM_TURN_TIMEOUT` (default 90), `DB_POOL_SIZE` / `DB_MAX_OVERFLOW`
+  `CURATOR_MODEL`, `LLM_TURN_TIMEOUT` (default 90), `OPENROUTER_API_KEY` (for
+  `LLM_MODEL=openrouter:…`), `DB_POOL_SIZE` / `DB_MAX_OVERFLOW`
   (default 10 / 10 per process), `TURN_LOCK_TIMEOUT` (default 120).
 - Scaling out: run more app processes freely. Turns stay one-at-a-time per user (D44);
   keep processes × (pool + overflow) under Postgres `max_connections` (D45). Graph sync

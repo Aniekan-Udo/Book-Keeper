@@ -474,3 +474,20 @@ async def test_an_empty_answer_in_the_wrong_shape_means_nothing_to_remember(worl
     await world.record(credit_sale("Emeka", 1000))
     outcome = await world.curator(SaysEmptyList()).curate(await world.turn("Emeka is a good customer"))
     assert outcome.asked_model and outcome.applied == [] and outcome.rejected == []
+
+
+async def test_a_host_without_json_schema_output_falls_back_to_tool_calling(world):
+    """Not every host behind OpenRouter takes JSON-schema output for every model."""
+    class NoJsonSchema(ScriptedModel):
+        def with_structured_output(self, schema, **kwargs):
+            if kwargs.get("method") == "json_schema":
+                class Refuses:
+                    async def ainvoke(self, messages, config=None):
+                        raise RuntimeError("Error code: 400 - response_format json_schema is not supported")
+                return Refuses()
+            return self
+
+    await world.record(credit_sale("Pastor John", 30000))
+    op = MemoryOp(op="set_do_not_remind", party="Pastor John", said="no remind am")
+    outcome = await world.curator(NoJsonSchema([op])).curate(await world.turn("No remind Pastor John"))
+    assert outcome.applied == ["set_do_not_remind"]

@@ -161,7 +161,8 @@ MATCH (x)-[:LEARNED_FROM]->(m:Message), (x)-[:WRITTEN_BY]->(a:Agent) RETURN x, m
 
 ## Run it
 
-Requirements: Docker, and a Groq API key (or another provider, see `llm.py`).
+Requirements: Docker, and a Groq API key, or an OpenRouter key with
+`LLM_MODEL=openrouter:openai/gpt-oss-120b` (the same model; see `llm.py` for others).
 
 ```bash
 cp .env.example .env            # set GROQ_API_KEY, Postgres credentials
@@ -222,7 +223,7 @@ Live runs against the real model, and what they changed, are written up in
 
 ## Design notes
 
-- [`Documentation.MD` §9](Documentation.MD): architecture, design patterns, **47 numbered
+- [`Documentation.MD` §9](Documentation.MD): architecture, design patterns, **48 numbered
   decisions with their trade-offs**, error handling, log events, every Cypher statement,
   live-run findings, and known limitations.
 - [`docs/hackathon-design.md`](docs/hackathon-design.md): the product design: problem,
