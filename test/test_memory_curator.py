@@ -4,6 +4,7 @@ Recall's matching is pure and always runs. The curator tests run against a real 
 (docker compose up -d falkordb) and are skipped if none answers; the model is scripted, so
 these test the checking and writing, not the LLM's judgement (that's the eval's job).
 """
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from datetime import date
@@ -573,3 +574,24 @@ async def test_app_buttons_remove_a_nickname_and_forget_a_person(world, new_brow
         assert await world.rows("MATCH (f:Fact) RETURN count(f)") == [[0]]
     finally:
         set_graph_memory(NullGraphMemory())
+
+
+async def test_more_time_is_never_turned_into_do_not_remind(world):
+    """Seen in the curator eval: "give am till Friday" proposed as do-not-remind."""
+    await world.record(credit_sale("Emeka", 36000))
+    op = MemoryOp(op="set_do_not_remind", party="Emeka")
+    outcome = await world.curator(ScriptedModel([op])).curate(await world.turn("Emeka beg make I give am till Friday"))
+    assert outcome.rejected == [("set_do_not_remind", "message isn't about reminding")]
+
+
+async def test_a_stalled_model_call_gives_up(world, monkeypatch):
+    import memory.curator as curator_module
+
+    class Stalls(ScriptedModel):
+        async def ainvoke(self, messages, config=None):
+            await asyncio.sleep(5)
+
+    monkeypatch.setattr(curator_module, "CURATOR_CALL_TIMEOUT", 0.1)
+    await world.record(credit_sale("Emeka", 1000))
+    outcome = await world.curator(Stalls()).curate(await world.turn("Emeka is my guy"))
+    assert outcome.asked_model and outcome.applied == []

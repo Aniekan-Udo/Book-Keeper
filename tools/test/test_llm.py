@@ -12,6 +12,8 @@ def test_openrouter_uses_the_openai_client_at_openrouters_address(monkeypatch):
     assert model.openai_api_base == "https://openrouter.ai/api/v1"
     assert model.openai_api_key.get_secret_value() == "sk-or-test"
     assert model.temperature == 0
+    assert model.extra_body == {"provider": {"order": ["groq", "cerebras"], "allow_fallbacks": True},
+                                "reasoning": {"effort": "medium"}}
 
 
 def test_the_openrouter_address_can_be_overridden(monkeypatch):

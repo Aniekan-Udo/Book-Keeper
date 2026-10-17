@@ -224,6 +224,10 @@ uv run pytest                   # 367 tests (+4 that need a Postgres URL), no mo
 CI (`.github/workflows/tests.yml`) runs all 371 against Postgres and FalkorDB on every push,
 plus a dependency CVE audit.
 
+The curator's judgement is measured live with `uv run python -m tools.curator_eval`: 16
+cases from the demo scenario, 7 of them traps where the right answer is "remember
+nothing". Current result: **16/16** on `gpt-oss-120b` (two consecutive runs).
+
 The memory tests cover:
 - recall's name matching
 - the curator's validation and provenance
@@ -236,7 +240,7 @@ Live runs against the real model, and what they changed, are written up in
 
 ## Design notes
 
-- [`Documentation.MD` §9](Documentation.MD): architecture, design patterns, **49 numbered
+- [`Documentation.MD` §9](Documentation.MD): architecture, design patterns, **50 numbered
   decisions with their trade-offs**, error handling, log events, every Cypher statement,
   live-run findings, and known limitations.
 - [`docs/hackathon-design.md`](docs/hackathon-design.md): the product design: problem,

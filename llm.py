@@ -46,15 +46,32 @@ def _rate_limiter() -> InMemoryRateLimiter | None:
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
+def _openrouter_providers() -> dict:
+    order = [p.strip() for p in os.getenv("OPENROUTER_PROVIDERS", "groq,cerebras").split(",") if p.strip()]
+    if order:
+        return {"order": order, "allow_fallbacks": True}
+    return {"sort": os.getenv("OPENROUTER_PROVIDER_SORT", "latency")}
+
+
 def _build(model: str, timeout: int) -> BaseChatModel:
     if model.startswith("google_genai:") and not os.getenv("GOOGLE_API_KEY") and os.getenv("GEMINI_API_KEY"):
         os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
     if model.startswith("openrouter:"):
         # OpenRouter speaks the OpenAI API: same client, its own address and key
+        # provider.order: try these hosts first (Groq, where the agents were validated, then
+        # Cerebras: both answer in about a second), falling back to others only if they're down.
+        # Some other hosts stalled for over a minute. OPENROUTER_PROVIDERS="" lets OpenRouter pick
+        # by provider.sort instead.
+        # reasoning.effort: gpt-oss is a reasoning model and some hosts default to "high", which
+        # can think for minutes (one call took 12); "medium" matches Groq, where it was validated.
+        # OPENROUTER_PROVIDER_SORT: latency (default) / throughput / price.
+        # OPENROUTER_REASONING_EFFORT: low / medium (default) / high.
         return init_chat_model("openai:" + model.removeprefix("openrouter:"), temperature=0, timeout=timeout,
                                max_retries=2, rate_limiter=_rate_limiter(),
                                base_url=os.getenv("OPENROUTER_BASE_URL", OPENROUTER_BASE_URL),
-                               api_key=os.getenv("OPENROUTER_API_KEY"))
+                               api_key=os.getenv("OPENROUTER_API_KEY"),
+                               extra_body={"provider": _openrouter_providers(),
+                                           "reasoning": {"effort": os.getenv("OPENROUTER_REASONING_EFFORT", "medium")}})
     return init_chat_model(model, temperature=0, timeout=timeout, max_retries=2, rate_limiter=_rate_limiter())
 
 

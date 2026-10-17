@@ -895,6 +895,23 @@ delete or remove. The People drawer has the same two actions as buttons ("Not th
 person", "Forget what's remembered"), which call the graph directly with no model.
 Erasure on request also matters for third-party data under the NDPA.
 
+**D50. The curator's judgement is measured: `tools/curator_eval.py`.** Sixteen cases from
+the scenario, seven of them traps where the right answer is "remember nothing" (a single
+sale isn't a usual order, asking for a reminder isn't permission, the porter Chidi isn't
+Mama Chidi, "give am till Friday" is a due date). A case passes only if the model proposes
+exactly the right operations. First run on OpenRouter: 14/16, and two findings fixed:
+- "Emeka beg make I give am till Friday" was proposed as do-not-remind, which would have
+  taken Emeka off the chase list. Now refused in code unless the message is about reminding
+  (as forgetting is), and the instruction is clearer. A regression test covers it.
+- Hosts behind OpenRouter sometimes stalled for minutes (one call took 12): some run
+  `gpt-oss` at high reasoning effort, and OpenRouter's keep-alive notes stop the HTTP
+  timeout from firing. Now: reasoning effort `medium` (as on Groq), routing to Groq then
+  Cerebras through OpenRouter (`OPENROUTER_PROVIDERS`; about a second each, paid from
+  OpenRouter credits), a 60 s ceiling per curator call with one retry (safe: background,
+  checked, repeat-safe writes). The chat keeps its 90 s ceiling without a retry: a turn
+  that recorded a sale before stalling must not record it again.
+Result after the fixes: **16/16 on two consecutive runs**, about one second per case.
+
 ### 9.5 Error handling
 
 | Where | Fails how | What happens |

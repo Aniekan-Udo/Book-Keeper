@@ -44,6 +44,11 @@ from utils import logger, provider_problem
 AGENT = "curator"
 # forget_person deletes memory for good: only when the trader's own words ask for it
 _FORGET_WORDS = ("forget", "delete", "erase", "remove", "clear", "comot", "wipe")
+# do-not-remind takes someone off the chase list: only when the message is about reminding
+# (the eval caught "give am till Friday" being read as "don't remind")
+_REMIND_WORDS = ("remind", "chase", "disturb", "bother", "worry", "message", "text", "call", "leave am", "leave her",
+                 "leave him", "no tell")
+CURATOR_CALL_TIMEOUT = 60  # seconds; a stalled host must not hold the job worker
 UNCHANGED = "unchanged"  # _apply's answer when the memory was already there
 INFER_AFTER = 3  # identical sales in a row before a usual order is guessed
 
@@ -78,8 +83,8 @@ INSTRUCTIONS = """You keep long-term memory for a Nigerian trader's bookkeeping 
 Operations:
 - add_alias: the trader confirmed two names are one person ("Chidi's mum na Mama Chidi", "yes" to "Is X the same as Y?", "Bolu na Bola"). Only the trader's own words count: never from the assistant's question alone, before the trader has answered. party = the known person; alias = the other name as written.
 - set_usual_order: the trader says what someone usually buys ("Bola's usual na 2 bags rice"). Not for a single sale.
-- set_do_not_remind: don't remind or chase someone ("no remind Pastor John"). until = end date if given.
-- lift_do_not_remind: only when the trader clearly says reminding them is now fine ("you fit remind Pastor John now"). Asking for a reminder ("remind Pastor John") is NOT permission: the assistant checks with them first.
+- set_do_not_remind: only when the trader says not to remind, chase or disturb someone ("no remind Pastor John"). until = end date if given. Giving someone more time to pay ("give am till Friday") is NOT this: that's a due date, already handled, so no op.
+- lift_do_not_remind: only when the trader clearly says reminding them is now fine ("you fit remind Pastor John now"). Asking for a reminder ("remind Pastor John") is NOT permission (the assistant checks with them first) and isn't a new do-not-remind either: no op.
 - set_role: a role started or ended. "Musa dey supply my oil now" → supplier, active true. "E no dey buy from me again" → customer, active false.
 - remove_alias: the trader says a name is NOT that person ("Chidi's mum no be Mama Chidi"). party = the person, alias = the name.
 - remove_usual_order: someone no longer has a usual order, or the remembered one is wrong.
@@ -428,14 +433,25 @@ class Curator:
             messages = [SystemMessage(INSTRUCTIONS), HumanMessage(context)]
             base = self._model_factory()
             try:
-                result = await _structured(base).ainvoke(messages, config=config)
+                try:
+                    result = await asyncio.wait_for(_structured(base).ainvoke(messages, config=config),
+                                                    CURATOR_CALL_TIMEOUT)
+                except (asyncio.TimeoutError, TimeoutError):
+                    # a stalled host: one more try (background work, and every write is checked
+                    # and repeat-safe, so a retry can't do harm)
+                    logger.warning("curator.model_timeout_retry", user_id=turn.user_id)
+                    result = await asyncio.wait_for(_structured(base).ainvoke(messages, config=config),
+                                                    CURATOR_CALL_TIMEOUT)
+            except (asyncio.TimeoutError, TimeoutError):
+                raise
             except Exception as e:
                 if _empty_answer_rejected(e) or provider_problem(e):
                     raise
                 # some hosts (e.g. behind OpenRouter) don't take JSON-schema output for every
                 # model: one more try with plain tool calling before giving up on this turn
                 logger.info("curator.json_schema_fallback", user_id=turn.user_id, error=type(e).__name__)
-                result = await base.with_structured_output(CuratorOutput).ainvoke(messages, config=config)
+                result = await asyncio.wait_for(base.with_structured_output(CuratorOutput).ainvoke(messages, config=config),
+                                                CURATOR_CALL_TIMEOUT)
         except Exception as e:
             if _empty_answer_rejected(e):
                 # the model meant "nothing to remember" but wrote [] instead of {"ops": []}
@@ -519,6 +535,8 @@ class Curator:
             return None
 
         if op.op == "set_do_not_remind":
+            if not any(w in turn.message.lower() for w in _REMIND_WORDS):
+                return "message isn't about reminding"
             if op.until and op.until < turn.today:
                 return "end date already passed"
             current = await self._memory.current_fact(uid, party, "do_not_remind")
