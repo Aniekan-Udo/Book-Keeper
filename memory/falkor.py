@@ -40,7 +40,7 @@ UPSERT_PARTY = """
 MERGE (t:Trader {id: $user_id})
 MERGE (p:Party {key: $key})
 ON CREATE SET p.created_at = $now
-SET p.name = $name
+SET p.name = $name, p.pg_id = coalesce($pg_id, p.pg_id)
 """
 
 # Debt nodes are keyed by the Postgres id. A correction can move an entry to another
@@ -435,7 +435,8 @@ class FalkorGraphMemory:
                 await self._sync_inferred_role(graph, user_id, party)
                 continue
             await self._run(graph, UPSERT_PARTY,
-                            {"user_id": int(user_id), "key": party.key, "name": party.name, "now": now},
+                            {"user_id": int(user_id), "key": party.key, "name": party.name, "now": now,
+                             "pg_id": party.pg_id},
                             "upsert_party")
             if party.debts:
                 await self._run(graph, UPSERT_DEBTS, {"key": party.key, "debts": [

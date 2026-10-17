@@ -9,7 +9,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import LooseDate, business_today
@@ -17,6 +17,7 @@ from db import TransactionORM, RepaymentAllocation
 from tools.contacts import save_contact
 from tools.formatting import format_naira
 from tools.ledger_events import LedgerChanged, ledger_events
+from tools.parties import party_id_for
 
 ZERO = Decimal("0.00")
 
@@ -117,9 +118,8 @@ def clarification_for(row: TransactionORM) -> dict:
 
 async def _apply_repayment(db: AsyncSession, repayment: TransactionORM) -> list[str]:
     """Settle the party's oldest open debts first (FIFO). Returns notes for the reply."""
-    party = _party_key(repayment.party)
     amount_text = format_naira(repayment.amount)
-    if party is None:
+    if repayment.party_id is None:
         return [f"I recorded the {amount_text} repayment, but I couldn't tell whose debt it settles. Who was it?"]
 
     open_debts = (await db.execute(
@@ -130,7 +130,7 @@ async def _apply_repayment(db: AsyncSession, repayment: TransactionORM) -> list[
             TransactionORM.status == "complete",
             TransactionORM.type.in_(SETTLEABLE_BY_DIRECTION[repayment.direction]),
             TransactionORM.outstanding > 0,
-            func.lower(func.trim(TransactionORM.party)) == party,
+            TransactionORM.party_id == repayment.party_id,
         )
         .order_by(TransactionORM.date, TransactionORM.id)
         .with_for_update()
@@ -195,6 +195,7 @@ async def persist_transactions(db: AsyncSession, transactions: list[TransactionI
                 date=t.date or business_today(), due_date=t.due_date,
                 is_deleted=False,
             )
+            row.party_id = await party_id_for(db, user_id, t.party)
             _settle(row)
             rows.append(row)
 
@@ -323,6 +324,8 @@ async def correct_transaction(db: AsyncSession, user_id: int, transaction_id: in
             setattr(row, field, value)
         if "amount" in changes and "amount_paid" not in changes and was_paid_in_full:
             row.amount_paid = row.amount
+        if "party" in changes:
+            row.party_id = await party_id_for(db, user_id, row.party)
 
         _settle(row)
         await db.flush()

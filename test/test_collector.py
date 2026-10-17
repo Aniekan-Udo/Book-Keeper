@@ -168,15 +168,20 @@ async def test_bank_name_and_reminder_notes_are_remembered_with_their_source(wor
         == [["2026-09-07"], ["2026-09-11"], ["2026-09-24"]]  # the broken ones; kept ones aren't a reason
 
 
-async def test_alert_matcher_uses_a_remembered_bank_name(world, graph_on):
+async def test_alert_matcher_uses_a_remembered_bank_name(world):
     await world.record(credit_sale("Emeka", 36000), credit_sale("Nwosu", 20000))
     alert = BankAlert(user_id=world.user_id, direction="in", amount=36000, counterparty="NWOSU EMEKA CHUKWUDI",
                       fingerprint="x", kind="credit_alert", status="pending")
     # "Emeka" and "Nwosu" (another customer) both match the bank name by words: ambiguous
     assert len(await alerts.matching_debtors(world.db, world.user_id, alert)) == 2
 
-    await world.mem.add_alias(world.user_id, "nwosu emeka chukwudi", "NWOSU EMEKA CHUKWUDI", "emeka", "bank_name",
+    # a graph alias alone doesn't decide where money goes: party_aliases is the one store
+    await world.mem.add_alias(world.user_id, "nwosu emeka chukwudi", "NWOSU EMEKA CHUKWUDI", "nwosu", "bank_name",
                               Source(agent="alert_matcher", at="2026-09-14T10:00:00Z", turn_id=None))
+    assert len(await alerts.matching_debtors(world.db, world.user_id, alert)) == 2
+
+    await alerts.save_alias(world.db, world.user_id, "NWOSU EMEKA CHUKWUDI", "Emeka")  # the trader confirmed it
+    await world.db.commit()
     assert list(await alerts.matching_debtors(world.db, world.user_id, alert)) == ["emeka"]
 
 

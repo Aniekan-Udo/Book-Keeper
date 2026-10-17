@@ -33,7 +33,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 
 from config import LooseDate, business_today
-from db import PartyAlias, TransactionORM
+from db import Party, PartyAlias, TransactionORM
 from memory.models import GraphMemoryError, KnownName, Source
 from memory.ports import GraphMemory
 from memory.recall import Recalled, recall
@@ -313,18 +313,22 @@ class Curator:
         counts = await self._memory.forget_party(user_id, party_key)
         async with self._session_factory() as db:
             result = await db.execute(delete(PartyAlias).where(
-                PartyAlias.user_id == user_id, func.lower(func.trim(PartyAlias.party)) == party_key))
+                PartyAlias.user_id == user_id,
+                PartyAlias.party_id.in_(select(Party.id).where(Party.user_id == user_id, Party.key == party_key))))
             await db.commit()
         counts["bank_names"] = result.rowcount or 0
         logger.info("curator.forgot", user_id=user_id, **counts)
         return counts
 
-    async def _forget_bank_name(self, user_id: int, alias: str) -> None:
-        """A bank name the trader says isn't this person: also drop the old table's copy."""
+    async def _forget_bank_name(self, user_id: int, alias: str, party_key: str) -> int:
+        """A name the trader says isn't this person: if it was a confirmed bank name, drop it
+        from party_aliases (the store alert matching reads). Returns rows removed."""
         async with self._session_factory() as db:
-            await db.execute(delete(PartyAlias).where(PartyAlias.user_id == user_id,
-                                                      PartyAlias.alias_key == alias.strip().lower()))
+            result = await db.execute(delete(PartyAlias).where(
+                PartyAlias.user_id == user_id, PartyAlias.alias_key == alias.strip().lower(),  # as tools/alerts stores it
+                PartyAlias.party_id.in_(select(Party.id).where(Party.user_id == user_id, Party.key == party_key))))
             await db.commit()
+        return result.rowcount or 0
 
     async def _ledger_entries(self, user_id: int, key: str) -> int:
         async with self._session_factory() as db:
@@ -508,9 +512,8 @@ class Curator:
             if not op.alias or not op.alias.strip():
                 return "no alias given"
             closed = await self._memory.close_alias(uid, name_key(op.alias), party, source)
-            if closed:
-                await self._forget_bank_name(uid, op.alias)
-            return None if closed else UNCHANGED
+            dropped = await self._forget_bank_name(uid, op.alias, party)
+            return None if closed or dropped else UNCHANGED
 
         if op.op == "remove_usual_order":
             closed = await self._memory.close_fact(uid, party, "usual_order", source)

@@ -54,6 +54,12 @@ Money columns are `Numeric(18,2)`. `amount` is the full agreed amount; `amount_p
 how much of it has been settled (upfront part-payment plus any repayments allocated to
 it); `outstanding = max(amount − amount_paid, 0)`.
 
+Who an entry is with: `party` is the name as the trader wrote it, and `party_id` points at
+`parties` (one row per person per trader, found by name key: lower-cased, trimmed; the
+latest spelling is the display name). Repayments settle debts by `party_id`, a correction
+that changes the name moves the id, and bank names (`party_aliases.party_id`) and the
+graph's Party nodes (`pg_id`) point at the same id (D51).
+
 Defaults when the user doesn't mention a part-payment: sales and expenses are paid in
 full; loans are fully outstanding.
 
@@ -361,7 +367,8 @@ decided in code:
 | Contains a PIN/OTP/card number/BVN | Not stored; the user is warned |
 
 When the trader answers "that's Mama Chidi", the bank name is remembered
-(`party_aliases`), so her next transfer is recognised automatically. Only parsed fields
+(`party_aliases`, linked to her `parties` id), so her next transfer is recognised
+automatically, with or without graph memory (D52). Only parsed fields
 are stored (`bank_alerts`) — not the raw text, balances or account numbers. Undoing an
 entry made from an alert frees that alert to be used again.
 
@@ -543,7 +550,7 @@ One graph per trader, named `trader_<user_id>`.
 
 ```
 (:Trader {id})
-(:Party {key, name, created_at})
+(:Party {key, name, pg_id, created_at})            // pg_id = parties.id
 (:Debt {pg_id, kind, open, date, due, settled_on}) -[:WITH]-> (:Party)
 (:Party) -[:CUSTOMER_OF|SUPPLIER_OF {confidence, valid_from, valid_to, turn_id, written_by}]-> (:Trader)
 
@@ -735,7 +742,7 @@ trader can see the assistant remembered.
 
 **D32. Bank names are graph aliases (`kind: bank_name`), PartyAlias stays as fallback.**
 The Alert matcher checks the graph first; the old PartyAlias table is still written and
-read, so alerts keep matching with graph memory off.
+read, so alerts keep matching with graph memory off. *Superseded by D52: one store.*
 
 **D33. The "why?" tool answers from provenance, not the model's memory.** It returns every
 promise with its outcome, who decided it and the trader's message it came from (text
@@ -889,7 +896,7 @@ promised "wrong? say so and it's corrected", but the curator could only add or r
 now also has `remove_alias` ("Chidi's mum no be Mama Chidi": the link is closed, kept as
 history), `remove_usual_order`, and `forget_person`, which **deletes** everything learned
 about someone (aliases, facts, promises, reminders, stated roles, and their bank names in
-the old PartyAlias table) but never their entries in the books. Because it can't be
+`party_aliases`) but never their entries in the books. Because it can't be
 undone, code only lets `forget_person` through if the trader's own message asks to forget,
 delete or remove. The People drawer has the same two actions as buttons ("Not the same
 person", "Forget what's remembered"), which call the graph directly with no model.
@@ -911,6 +918,45 @@ exactly the right operations. First run on OpenRouter: 14/16, and two findings f
   checked, repeat-safe writes). The chat keeps its 90 s ceiling without a retry: a turn
   that recorded a sale before stalling must not record it again.
 Result after the fixes: **16/16 on two consecutive runs**, about one second per case.
+
+**D51. People have ids: the `parties` table.** Until now a person was a lower-cased name,
+compared as a string in every query (`lower(trim(party))` in the ledger, alerts, sync,
+statements, the curator). Now `parties` holds one row per person per trader, and entries
+(`business_transactions.party_id`), bank names (`party_aliases.party_id`) and the graph's
+Party nodes (`pg_id`) point at it. `tools/parties.party_id_for` is the only way an id is
+made: get-or-create by name key, written as insert-or-ignore then read, so two writers
+can't create the same person twice (the unique `(user_id, key)` decides).
+- Repayments find the debts to settle by id, and a correction that changes the name moves
+  the id with it.
+- The migration (`e2f6a8c0b417`) creates the table and backfills it from the names
+  already in the books and in `party_aliases`, grouped exactly as before, so nothing
+  changes meaning. On the local database: 14 parties, every entry linked.
+- No foreign key from `parties.user_id` to `user`, matching `business_transactions`: a
+  party exists because entries do.
+- **Trade-off, deliberately left:** the graph is still keyed by name key, and reads that
+  group by name (reports, statements) still group by name. Both give the same answer as
+  the id today, because the id is made from the same key. What the id buys is the next
+  step: renaming or merging two people ("Bolu is Bola") becomes one update to
+  `party_id`, instead of rewriting names across tables and graph. That step isn't built.
+
+**D52. Bank names have one store: `party_aliases`.** They used to live in two places, the
+graph (written by the curator) and `party_aliases` (written when the trader answers an
+alert), and alert matching read the graph first, then the table. Two copies of a fact that
+decides where money goes could disagree: remove the graph link and the table still
+matched; forget a person and the table kept their bank name. Now:
+- `party_aliases` is the store. Alert matching reads only it (`confirmed_bank_name`, by
+  party id), so it works the same with graph memory off. No graph read on the money path.
+- The graph mirrors it, like debts mirror the ledger: the curator still writes the alias
+  with its provenance (the turn, the Alert matcher), for recall and "why?". A rebuild
+  (`scripts/rebuild_graph.py`) restores bank names the graph is missing, from Postgres.
+  A graph alias alone never moves money (a test pins this).
+- Removing a nickname ("Not the same person", or by chat) and forgetting a person delete
+  the `party_aliases` row for that person as well as closing the graph link.
+- The seed writes bank names to `party_aliases` as answering the alert would, so the demo
+  matches `OKAFOR CHINYERE MARY` from Postgres. The local demo was re-seeded for this
+  (same password).
+- Why not the graph as the one store: graph memory is optional and can be down, and
+  bookkeeping comes first; a forwarded alert must still find its debtor.
 
 ### 9.5 Error handling
 
@@ -940,7 +986,6 @@ Result after the fixes: **16/16 on two consecutive runs**, about one second per 
 | `tools/turn_lock._advisory_lock` | Unlock fails | `turn_lock.unlock_failed`; closing the connection releases the lock anyway |
 | `Collector.who_to_chase` | Sweep or recall fails | `collector.sweep_failed` / `collector.recall_failed`; ranks on the ledger alone (overdue, amount) |
 | `Collector.do_not_remind` | Graph unavailable | `collector.check_failed`; returns no restriction (the prompt still carries what recall found, if anything) |
-| `tools/alerts._graph_bank_name` | Graph unavailable | `alerts.graph_lookup_failed`; falls back to the PartyAlias table |
 | `memory/explain.explain` | Graph unavailable / unknown person | `explain.failed` → "can't reach my memory"; unknown → "nothing remembered about X" |
 | `Curator._apply_notes` | Note names a party the graph doesn't have | `curator.note_unknown_party`, skipped |
 | `scripts/collector_sweep.py` | One trader fails | Logged, reported, exit 1; others continue. Safe to re-run |

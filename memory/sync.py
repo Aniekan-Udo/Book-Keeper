@@ -13,14 +13,14 @@ It runs in two ways:
 import asyncio
 import time
 from contextlib import AbstractAsyncContextManager
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Callable, Iterable
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db import RepaymentAllocation, TransactionORM
-from memory.models import DebtSnapshot, GraphMemoryError, PartySnapshot
+from db import Party, PartyAlias, RepaymentAllocation, TransactionORM
+from memory.models import DebtSnapshot, GraphMemoryError, PartySnapshot, Source
 from memory.ports import GraphMemory
 from tools.ledger_events import LedgerChanged
 from utils import logger
@@ -91,6 +91,7 @@ async def party_snapshots(db: AsyncSession, user_id: int,
                 for r in party_rows if _is_debt(r, ever_repaid)
             ),
             customer_since=receivables[0].date if receivables else None,
+            pg_id=party_rows[-1].party_id,
         ))
     for key in (wanted or set()) - by_key.keys():
         snapshots.append(PartySnapshot(key=key, name=None))
@@ -139,6 +140,32 @@ class GraphSync:
                         parties=synced, ms=round((time.perf_counter() - started) * 1000, 1))
             return
 
+    async def mirror_bank_names(self, user_id: int) -> int:
+        """Copy confirmed bank names (party_aliases, their one store) into the graph where it
+        doesn't have them yet: after a wipe, or ones confirmed before the graph existed.
+        A name the graph already links to someone is left alone. Returns how many were added."""
+        async with self._session_factory() as db:
+            rows = (await db.execute(
+                select(PartyAlias.alias_key, Party.key)
+                .join(Party, Party.id == PartyAlias.party_id)
+                .where(PartyAlias.user_id == user_id)
+            )).all()
+        if not rows:
+            return 0
+        names = await self._memory.known_names(user_id)
+        taken = {n.key for n in names}
+        parties = {n.party_key for n in names}
+        source = Source(agent="ledger_sync", at=datetime.now(timezone.utc).isoformat(), turn_id=None)
+        added = 0
+        for alias_key, party_key in rows:
+            key = " ".join(alias_key.split())  # graph alias keys collapse inner spaces
+            if key in taken or party_key not in parties:
+                continue
+            await self._memory.add_alias(user_id, key, alias_key.upper(), party_key, "bank_name", source)
+            taken.add(key)
+            added += 1
+        return added
+
     async def rebuild(self, user_id: int) -> dict:
         """Resync every party of one trader and drop debts the ledger no longer has.
         Raises GraphMemoryError if the store fails part-way (safe to run again)."""
@@ -147,6 +174,8 @@ class GraphSync:
         await self._memory.sync_parties(user_id, snapshots)
         alive = [d.pg_id for s in snapshots for d in s.debts]
         removed = await self._memory.prune_debts(user_id, alive)
-        summary = {"user_id": user_id, "parties": len(snapshots), "debts": len(alive), "removed": removed}
+        bank_names = await self.mirror_bank_names(user_id)
+        summary = {"user_id": user_id, "parties": len(snapshots), "debts": len(alive), "removed": removed,
+                   "bank_names": bank_names}
         logger.info("graph_sync.rebuilt", **summary)
         return summary

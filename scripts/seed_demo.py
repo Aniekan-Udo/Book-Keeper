@@ -35,7 +35,7 @@ from authentication.auth import hash_password
 from config import business_today
 from endpoints.demo import DAY1, DAY30
 from db import (
-    BankAlert, Contact, ConversationTurn, IdempotencyRecord, OnboardingSession, PartyAlias, PhoneChallenge, Reminder,
+    BankAlert, Contact, ConversationTurn, IdempotencyRecord, OnboardingSession, Party, PartyAlias, PhoneChallenge, Reminder,
     RepaymentAllocation, StatementLink, TransactionORM, User, UserSession, engine, get_db, init_models,
 )
 from memory import build_graph_memory
@@ -43,6 +43,7 @@ from memory.collector import Collector
 from memory.curator import Curator, CuratorOutput, MemoryOp, OrderItem, Turn
 from memory.recall import recall
 from memory.sync import GraphSync
+from tools.alerts import save_alias
 from tools.ledger import TransactionInput, correct_transaction, persist_transactions
 from tools.ledger_events import ledger_events
 
@@ -198,7 +199,7 @@ async def delete_demo_user(email: str, memory) -> None:
         txn_ids = select(TransactionORM.id).where(TransactionORM.user_id == uid)
         await db.execute(delete(RepaymentAllocation).where(RepaymentAllocation.repayment_id.in_(txn_ids)))
         for model in (BankAlert, PartyAlias, Reminder, Contact, StatementLink, ConversationTurn, UserSession,
-                      IdempotencyRecord, TransactionORM):
+                      IdempotencyRecord, TransactionORM, Party):
             await db.execute(delete(model).where(model.user_id == uid))
         await db.execute(delete(PhoneChallenge).where(PhoneChallenge.user_id == uid))
         await db.execute(delete(User).where(User.id == uid))
@@ -228,6 +229,13 @@ async def replay(uid: int, memory, learn: bool) -> None:
             if step.correct:
                 label, changes = step.correct
                 touched = [(await correct_transaction(db, uid, labels[label], **changes))["updated"]]
+            if learn:
+                # what resolving the alert did: the bank name goes in party_aliases (the store
+                # alert matching reads); the curator mirrors it into the graph below
+                for note in step.notes or []:
+                    if note.get("kind") == "bank_alias":
+                        await save_alias(db, uid, note["alias"], note["party"])
+                await db.commit()
         await ledger_events.drain()
         if not learn:
             continue

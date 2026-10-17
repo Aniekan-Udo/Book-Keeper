@@ -24,13 +24,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import llm
 from config import LooseDate, business_today
-from db import BankAlert, PartyAlias, TransactionORM
+from db import BankAlert, Party, PartyAlias, TransactionORM
 from tools.contacts import name_key
 from tools.formatting import format_naira
-from memory import get_graph_memory
-from memory.models import GraphMemoryError
 from tools.ledger import SETTLEABLE_BY_DIRECTION, TransactionInput, persist_transactions, to_money
-from utils import logger
+from tools.parties import party_id_for
 
 DUPLICATE_WINDOW = timedelta(days=1)
 SUPPORTED_IMAGES = {"image/jpeg", "image/png", "image/webp"}
@@ -134,35 +132,24 @@ async def _open_balances_by_party(db: AsyncSession, user_id: int, direction: str
     return grouped
 
 
-async def _graph_bank_name(user_id: int, bank_name: str) -> str | None:
-    """The party a bank name was confirmed as, from graph memory, or None (or graph off)."""
-    memory = get_graph_memory()
-    if not memory.enabled:
-        return None
-    key = " ".join(bank_name.lower().split())
-    try:
-        names = await memory.known_names(user_id)
-    except GraphMemoryError as e:
-        logger.warning("alerts.graph_lookup_failed", user_id=user_id, error=str(e))
-        return None
-    return next((n.party_name for n in names if n.is_alias and n.key == key), None)
+async def confirmed_bank_name(db: AsyncSession, user_id: int, bank_name: str) -> str | None:
+    """The party key a bank name was confirmed as, or None. party_aliases is the one store
+    of bank names (the graph only mirrors it), so this works with graph memory off."""
+    return (await db.execute(
+        select(Party.key)
+        .join(PartyAlias, PartyAlias.party_id == Party.id)
+        .where(PartyAlias.user_id == user_id, PartyAlias.alias_key == name_key(bank_name))
+    )).scalar_one_or_none()
 
 
 async def matching_debtors(db: AsyncSession, user_id: int, alert: BankAlert) -> dict[str, tuple[str, Decimal]]:
     """Open balances whose party this alert's sender/recipient could be. A bank name the
-    trader confirmed before (graph memory first, then the PartyAlias table, which keeps
-    working with graph memory off) is a single, certain match."""
+    trader confirmed before is a single, certain match."""
     open_parties = await _open_balances_by_party(db, user_id, alert.direction)
     if alert.counterparty:
-        party = await _graph_bank_name(user_id, alert.counterparty)
-        if party and name_key(party) in open_parties:
-            return {name_key(party): open_parties[name_key(party)]}
-        alias = (await db.execute(
-            select(PartyAlias.party)
-            .where(PartyAlias.user_id == user_id, PartyAlias.alias_key == name_key(alert.counterparty))
-        )).scalar_one_or_none()
-        if alias and name_key(alias) in open_parties:
-            return {name_key(alias): open_parties[name_key(alias)]}
+        key = await confirmed_bank_name(db, user_id, alert.counterparty)
+        if key and key in open_parties:
+            return {key: open_parties[key]}
     bank_name = alert.counterparty or alert.narration
     return {k: v for k, v in open_parties.items() if names_match(v[0], bank_name)}
 
@@ -200,16 +187,18 @@ def describe_alert(alert: BankAlert) -> str:
 
 
 async def save_alias(db: AsyncSession, user_id: int, bank_name: str, party: str) -> None:
+    """Remember that this bank name is this party (the trader just said so)."""
     key = name_key(bank_name)
     if not key or key == name_key(party):
         return
+    party_id = await party_id_for(db, user_id, party)
     alias = (await db.execute(
         select(PartyAlias).where(PartyAlias.user_id == user_id, PartyAlias.alias_key == key)
     )).scalar_one_or_none()
     if alias is None:
-        db.add(PartyAlias(user_id=user_id, alias_key=key, party=party.strip()))
+        db.add(PartyAlias(user_id=user_id, alias_key=key, party=party.strip(), party_id=party_id))
     else:
-        alias.party = party.strip()
+        alias.party, alias.party_id = party.strip(), party_id
     await db.flush()
 
 

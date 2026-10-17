@@ -524,8 +524,8 @@ async def test_forgetting_erases_memory_but_never_the_books(world):
                               Source(agent="alert_matcher", at="2026-09-14T10:00:00Z", turn_id=101))
     await world.mem.set_fact(world.user_id, "emeka", "do_not_remind", "do not remind",
                              Source(agent="curator", at="2026-09-15T10:00:00Z", turn_id=102), "stated")
-    from db import PartyAlias
-    world.db.add(PartyAlias(user_id=world.user_id, alias_key="nwosu emeka", party="Emeka"))
+    from tools.alerts import save_alias
+    await save_alias(world.db, world.user_id, "NWOSU EMEKA", "Emeka")  # the bank-name store alerts read
     await world.db.commit()
 
     op = MemoryOp(op="forget_person", party="Emeka")

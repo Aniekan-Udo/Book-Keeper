@@ -5,7 +5,8 @@
     uv run python -m scripts.rebuild_graph --user 12 --wipe
 
 Safe to run any time, as often as you like: it resyncs parties, debts and inferred
-customer roles, and removes debts the ledger no longer has. What the agents learned
+customer roles, removes debts the ledger no longer has, and restores confirmed bank names
+(kept in Postgres, party_aliases) the graph is missing. What the agents learned
 (aliases, promises, facts, stated roles) is kept, because it can't be rebuilt from Postgres.
 
 --wipe deletes the trader's whole graph first, learned memory included. Use it only to
@@ -45,7 +46,7 @@ async def main(user_ids: list[int] | None, wipe: bool) -> int:
                     await memory.delete_trader_graph(user_id)
                 summary = await sync.rebuild(user_id)
                 print(f"trader {user_id}: {summary['parties']} parties, {summary['debts']} debts, "
-                      f"{summary['removed']} stale removed")
+                      f"{summary['removed']} stale removed, {summary['bank_names']} bank names restored")
             except GraphMemoryError as e:
                 failed += 1
                 logger.error("rebuild_graph.failed", user_id=user_id, error=str(e))

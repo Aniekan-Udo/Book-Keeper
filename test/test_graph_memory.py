@@ -339,3 +339,63 @@ async def test_reads_are_retried_once_and_writes_never():
     with pytest.raises(GraphMemoryError):
         await memory._run(graph, "CREATE (n)", {}, "write")
     assert graph.writes == 1
+
+
+async def test_rebuild_restores_bank_names_and_party_ids(db_session, test_user, falkor, monkeypatch):
+    """Bank names live in Postgres (party_aliases); a wiped graph gets them back."""
+    from tools.alerts import save_alias
+    from tools.parties import find_party_id
+    monkeypatch.setattr(falkor, "graph_name", lambda user_id: f"test_trader_{T1}")
+    await persist_transactions(db_session, [sale("Emeka", 60000, paid=0)], test_user.id)
+    await save_alias(db_session, test_user.id, "NWOSU EMEKA CHUKWUDI", "Emeka")
+    await db_session.commit()
+
+    summary = await GraphSync(falkor, session_factory(db_session)).rebuild(test_user.id)
+    again = await GraphSync(falkor, session_factory(db_session)).rebuild(test_user.id)
+
+    assert summary["bank_names"] == 1 and again["bank_names"] == 0  # already there: not added twice
+    assert await rows(falkor, T1, "MATCH (a:Alias)-[:REFERS_TO]->(p:Party) RETURN a.key, a.kind, p.key") \
+        == [["nwosu emeka chukwudi", "bank_name", "emeka"]]
+    assert await rows(falkor, T1, "MATCH (p:Party) RETURN p.pg_id") \
+        == [[await find_party_id(db_session, test_user.id, "Emeka")]]
+
+
+# ── party ids ────────────────────────────────────────────────────────────────
+
+async def test_one_party_id_per_person_whatever_the_spelling(db_session, test_user):
+    from db import Party, TransactionORM
+    from sqlalchemy import select
+    await persist_transactions(db_session, [sale("Mama Chidi", 45000, paid=0)], test_user.id)
+    await persist_transactions(db_session, [sale(" mama chidi ", 10000, paid=0), sale("Emeka", 5000)], test_user.id)
+
+    rows_ = (await db_session.execute(select(TransactionORM.party, TransactionORM.party_id)
+                                      .order_by(TransactionORM.id))).all()
+    assert rows_[0].party_id == rows_[1].party_id != rows_[2].party_id
+    parties = (await db_session.execute(select(Party.key, Party.name).order_by(Party.id))).all()
+    assert [tuple(p) for p in parties] == [("mama chidi", "mama chidi"), ("emeka", "Emeka")]  # latest spelling
+
+
+async def test_repayments_and_corrections_follow_the_party_id(db_session, test_user):
+    from db import TransactionORM
+    from tools.parties import find_party_id
+    [bolu] = (await persist_transactions(db_session, [sale("Bolu", 90000, paid=0)], test_user.id))["logged"]
+    await correct_transaction(db_session, test_user.id, bolu["id"], party="Bola")  # misheard voice note
+    row = await db_session.get(TransactionORM, bolu["id"])
+    assert row.party_id == await find_party_id(db_session, test_user.id, "Bola")
+
+    result = await persist_transactions(db_session, [repayment("BOLA", 40000)], test_user.id)
+    await db_session.refresh(row)
+    assert row.outstanding == 50000
+    assert any("still has" in note for note in result["notes"])  # found the debt by id, not by spelling
+
+
+async def test_party_ids_are_per_trader(db_session, test_user):
+    from db import User
+    from tools.parties import find_party_id
+    other = User(firstname="O", lastname="T", email="other-trader@example.com")
+    db_session.add(other)
+    await db_session.commit()
+    await persist_transactions(db_session, [sale("Emeka", 1000)], test_user.id)
+    await persist_transactions(db_session, [sale("Emeka", 1000)], other.id)
+    mine, theirs = await find_party_id(db_session, test_user.id, "emeka"), await find_party_id(db_session, other.id, "emeka")
+    assert mine and theirs and mine != theirs

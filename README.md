@@ -218,10 +218,10 @@ Then open `trader_<id>` in the FalkorDB Browser. Re-seed before recording:
 
 ```bash
 docker compose up -d falkordb   # the graph tests run against a real FalkorDB (skipped if none)
-uv run pytest                   # 367 tests (+4 that need a Postgres URL), no model calls
+uv run pytest                   # 373 tests (+4 that need a Postgres URL), no model calls
 ```
 
-CI (`.github/workflows/tests.yml`) runs all 371 against Postgres and FalkorDB on every push,
+CI (`.github/workflows/tests.yml`) runs all 377 against Postgres and FalkorDB on every push,
 plus a dependency CVE audit.
 
 The curator's judgement is measured live with `uv run python -m tools.curator_eval`: 16
@@ -240,7 +240,7 @@ Live runs against the real model, and what they changed, are written up in
 
 ## Design notes
 
-- [`Documentation.MD` §9](Documentation.MD): architecture, design patterns, **50 numbered
+- [`Documentation.MD` §9](Documentation.MD): architecture, design patterns, **52 numbered
   decisions with their trade-offs**, error handling, log events, every Cypher statement,
   live-run findings, and known limitations.
 - [`docs/hackathon-design.md`](docs/hackathon-design.md): the product design: problem,

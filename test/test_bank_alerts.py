@@ -197,6 +197,9 @@ async def test_answer_records_it_and_learns_the_bank_name(db_session, trader):
     assert await receivable(db_session, trader) == 25000
     alias = (await db_session.execute(select(PartyAlias))).scalar_one()
     assert (alias.alias_key, alias.party) == ("grace n okafor", "Mama Chidi")
+    # the same person as her entries: one party id (and no graph needed to use it)
+    debt = (await db_session.execute(select(TransactionORM).where(TransactionORM.type == "sale"))).scalars().first()
+    assert alias.party_id is not None and alias.party_id == debt.party_id
 
     # next time, recognised automatically
     second = await review_alert(db_session, trader.id, "…", parsed=credit(5000, name="GRACE N OKAFOR", ref="A2"))

@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from authentication.auth import get_current_user
 from config import business_today
-from db import ConversationTurn, PartyAlias, TransactionORM, User, get_db_session
+from db import ConversationTurn, Party, PartyAlias, TransactionORM, User, get_db_session
 from memory import get_graph_memory
 from memory.collector import Collector
 from memory.curator import Curator
@@ -289,8 +289,10 @@ async def remove_alias(name: str, body: AliasRemoval, db: AsyncSession = Depends
         raise HTTPException(status_code=503, detail="Memory is unavailable right now. Try again shortly.")
     if not closed:
         raise HTTPException(status_code=404, detail=f'"{body.alias}" isn\'t linked to {found[1]}.')
-    await db.execute(delete(PartyAlias).where(PartyAlias.user_id == user.id,
-                                              PartyAlias.alias_key == body.alias.strip().lower()))
+    # a confirmed bank name too: alert matching reads party_aliases, not the graph
+    await db.execute(delete(PartyAlias).where(
+        PartyAlias.user_id == user.id, PartyAlias.alias_key == body.alias.strip().lower(),
+        PartyAlias.party_id.in_(select(Party.id).where(Party.user_id == user.id, Party.key == found[0]))))
     await db.commit()
     logger.info("dashboard.alias_removed", user_id=user.id)
     return {"removed": body.alias, "person": found[1]}

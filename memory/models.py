@@ -33,6 +33,7 @@ class PartySnapshot:
     debts: tuple[DebtSnapshot, ...] = field(default_factory=tuple)
     # first sale / loan given to them, if any: the ledger's evidence they're a customer
     customer_since: date | None = None
+    pg_id: int | None = None  # the parties.id this node stands for
 
 
 # ── learned memory ───────────────────────────────────────────────────────────

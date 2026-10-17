@@ -81,6 +81,22 @@ class IdempotencyRecord(Model):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
+class Party(Model):
+    """Someone in a trader's books, with a stable id. Entries, bank names and graph nodes
+    point at this id; the name key (lower-cased, trimmed) is how a typed name finds it."""
+    __tablename__ = "parties"
+    __table_args__ = (UniqueConstraint("user_id", "key", name="uq_parties_user_id_key"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # no foreign key, like business_transactions.user_id: a party exists because entries do
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    key: Mapped[str] = mapped_column(String(120), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)  # the latest spelling
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+
 class TransactionORM(Model):
     __tablename__ = "business_transactions"
 
@@ -95,6 +111,8 @@ class TransactionORM(Model):
         index=True,
     )
     party: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # who `party` is: set whenever party is (tools/parties.py)
+    party_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("parties.id"), nullable=True, index=True)
     item: Mapped[str | None] = mapped_column(String(120), nullable=True)
     quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
     unit: Mapped[str | None] = mapped_column(String(30), nullable=True)
@@ -253,8 +271,9 @@ class BankAlert(Model):
 
 
 class PartyAlias(Model):
-    """How a customer's name appears on bank alerts ("MAMA CHIDI OKAFOR") → the name the
-    trader uses ("Mama Chidi"), learned when the trader confirms who sent money."""
+    """How a customer's name appears on bank alerts ("MAMA CHIDI OKAFOR") → who it is,
+    learned when the trader confirms who sent money. The one store of bank names: matching
+    alerts reads only this (it works with graph memory off); the graph mirrors it."""
     __tablename__ = "party_aliases"
     __table_args__ = (UniqueConstraint("user_id", "alias_key", name="uq_party_aliases_user_id_alias_key"),)
 
@@ -262,6 +281,7 @@ class PartyAlias(Model):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("user.id"), nullable=False, index=True)
     alias_key: Mapped[str] = mapped_column(String(120), nullable=False)
     party: Mapped[str] = mapped_column(String(120), nullable=False)
+    party_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("parties.id"), nullable=True, index=True)
 
 
 class OnboardingSession(Model):
