@@ -33,23 +33,20 @@ The ledger is in Postgres; the graph can always be rebuilt from it
    (`migrate.py`), then serves. Check `https://<your-service>.onrender.com/health`:
    `{"status":"ok", ... "graph":"ok"}`.
 
-## 3. Seed the demo accounts (from your PC, once)
+## 3. The demo accounts
 
-The database only accepts connections from inside Render until you allow your IP:
+Nothing to do: Render's free database can't be reached from outside (its Networking settings
+are paid), so the app seeds the demo itself. With `SEED_DEMO=true` (set by `render.yaml`), each
+start runs `scripts.seed_demo --if-missing` before serving: the first start creates the two
+demo accounts, later starts see them and skip. The seed uses a scripted model: no model calls,
+no cost. Expect the first start to take a few minutes longer.
 
-1. Render → `book-keeper-db` → **Networking** → add your IP (find it at https://ifconfig.me).
-2. Copy the database's **External Database URL**.
-3. In Git Bash, from the project folder (don't put these in `.env`; they're for this one run):
-
-   ```bash
-   POSTGRES_URI='<External Database URL>?ssl=require' \
-   FALKORDB_HOST='<host>' FALKORDB_PORT='<port>' FALKORDB_USERNAME='<user>' FALKORDB_PASSWORD='<password>' \
-   DEMO_PASSWORD='<choose one>' \
-   uv run python -m scripts.seed_demo
-   ```
-
-   It prints the two demo accounts. The seed uses a scripted model: no model calls, no cost.
-4. Remove your IP from the database's Networking list again.
+- `DEMO_PASSWORD` is the password for both accounts. If your Blueprint was created before this
+  setting existed, add it in the service's **Environment** tab (without it, a random password
+  is printed in the deploy logs).
+- In the logs look for `ngozi.day30@example.com: user …`, or `Demo accounts already seeded.`
+  If FalkorDB can't be reached, the log says `Demo seed failed, starting anyway`: fix the
+  `FALKORDB_*` values and redeploy, and the next start seeds.
 
 ## 4. Keep it awake
 
@@ -74,7 +71,7 @@ counting as unused (check it's still running after the first day).
 - **Not for real traders as is:** graph traffic to the free FalkorDB isn't encrypted, the
   database expires in 30 days, and nothing is backed up. Fine for a demo with made-up data.
 - **Redeploys** happen on every push to `roadmap` (`autoDeploy`). Migrations run on start.
-- **After 30 days** the database is deleted unless upgraded; recreate it, redeploy, and seed again.
+- **After 30 days** the database is deleted unless upgraded; recreate it and redeploy: the app seeds the new one.
 - **If the graph instance is deleted:** create a new one, update the four `FALKORDB_*`
   values, then rebuild the memory mirror from the ledger. Learned memory is lost; for the demo,
-  seeding again with `--reset` brings back the whole month.
+  a fresh database (or `seed_demo --reset`) brings back the whole month.

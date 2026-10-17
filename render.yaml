@@ -56,6 +56,10 @@ services:
         sync: false            # https://<service-name>.onrender.com, once you know it
       - key: DEMO_ACCOUNTS
         value: "true"          # one-click login to the seeded demo accounts, for judges
+      - key: SEED_DEMO
+        value: "true"          # seed the demo accounts on start if missing (no external DB access on free)
+      - key: DEMO_PASSWORD
+        sync: false            # password for both demo accounts
       - key: ENABLE_API_DOCS
         value: "false"
 
@@ -77,4 +81,4 @@ databases:
     region: frankfurt
     databaseName: bookkeeper
     user: bookkeeper
-    ipAllowList: []            # internal only; add your IP (or 0.0.0.0/0 briefly) to seed from your PC
+    ipAllowList: []            # internal only: the app seeds the demo itself (SEED_DEMO)

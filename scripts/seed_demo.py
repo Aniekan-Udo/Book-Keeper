@@ -2,6 +2,8 @@
 
     uv run python -m scripts.seed_demo            create the two demo accounts
     uv run python -m scripts.seed_demo --reset    delete them (and their graphs) first
+    uv run python -m scripts.seed_demo --if-missing   only if they aren't there yet (deploys:
+                                                      SEED_DEMO=true runs this on start)
 
 - **Day 30** (ngozi.day30@example.com): the whole month replayed through the real code: the
   ledger, the graph sync, the memory curator (with the trader's messages as its source) and
@@ -257,7 +259,7 @@ async def replay(uid: int, memory, learn: bool) -> None:
         await collector.sweep(uid, d(30))
 
 
-async def main(reset: bool) -> int:
+async def main(reset: bool, if_missing: bool = False) -> int:
     memory = build_graph_memory()
     if not memory.enabled or not await memory.ping():
         print("Graph memory is off or FalkorDB isn't reachable (docker compose up -d falkordb).")
@@ -267,6 +269,15 @@ async def main(reset: bool) -> int:
     ledger_events.subscribe(sync.on_ledger_changed)
     password = os.getenv("DEMO_PASSWORD") or secrets.token_urlsafe(9)
     try:
+        if if_missing:
+            found = 0
+            for email, _ in (DAY30, DAY1):
+                async with get_db() as db:
+                    found += (await db.execute(select(User.id).where(User.email == email))).first() is not None
+            if found == 2:
+                print("Demo accounts already seeded.")
+                return 0
+            reset = True  # none, or half of a seed that was cut off: start them over
         for email, _ in (DAY30, DAY1):
             async with get_db() as db:
                 exists = (await db.execute(select(User.id).where(User.email == email))).first()
@@ -291,4 +302,6 @@ async def main(reset: bool) -> int:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--reset", action="store_true", help="delete the demo accounts and their graphs first")
-    sys.exit(asyncio.run(main(parser.parse_args().reset)))
+    parser.add_argument("--if-missing", action="store_true", help="do nothing if both demo accounts exist")
+    args = parser.parse_args()
+    sys.exit(asyncio.run(main(args.reset, args.if_missing)))

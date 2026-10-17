@@ -32,5 +32,7 @@ EXPOSE 8001
 # client's real IP from X-Forwarded-For (for per-IP rate limits) — only trusted because
 # the app's port is never published to the internet (see docker-compose.yml).
 # --no-server-header: don't advertise the server software and version. PORT: hosts like
-# Render choose the port; 8001 otherwise.
-CMD ["sh", "-c", "uv run --no-sync python migrate.py && uv run --no-sync uvicorn main:app --host 0.0.0.0 --port ${PORT:-8001} --proxy-headers --forwarded-allow-ips='*' --no-server-header"]
+# Render choose the port; 8001 otherwise. SEED_DEMO=true: create the demo accounts on start
+# if they aren't there (hosts whose database can't be reached from outside); a failed seed
+# is logged and the app still starts.
+CMD ["sh", "-c", "uv run --no-sync python migrate.py && { [ \"$SEED_DEMO\" != true ] || uv run --no-sync python -m scripts.seed_demo --if-missing || echo 'Demo seed failed, starting anyway'; } && uv run --no-sync uvicorn main:app --host 0.0.0.0 --port ${PORT:-8001} --proxy-headers --forwarded-allow-ips='*' --no-server-header"]

@@ -973,6 +973,13 @@ listens on `$PORT` if the host sets one, and FalkorDB takes an optional username
   after 30 days; the free FalkorDB tier has no TLS and no backups (the graph can be rebuilt
   from the ledger, learned memory can't). Not fit for real traders' data as is.
 
+**D54. The app seeds the demo on start** (`SEED_DEMO`, `seed_demo --if-missing`). Render's
+free Postgres can't be reached from outside (access control is a paid feature), so the
+demo can't be seeded from a PC. With `SEED_DEMO=true` the container runs
+`seed_demo --if-missing` between the migration and the server: both accounts present → skip;
+none, or one (a seed cut off halfway) → recreate them. A failed seed is logged and the app
+starts anyway. Free to repeat: the seed calls no model. Costs a few minutes on the first start.
+
 ### 9.5 Error handling
 
 | Where | Fails how | What happens |
@@ -1087,7 +1094,8 @@ All in `memory/falkor.py`:
 - Job queue: `uv run python -m scripts.jobs status` (pending/failed by kind), `failed`,
   `retry [--id N]`, `run [--forever]` (drain the queue, or run a worker process).
   Settings: `JOB_QUEUE` (`durable` / `memory`), `JOB_WORKERS` (2), `JOB_MAX_ATTEMPTS` (6).
-- Demo: `uv run python -m scripts.seed_demo [--reset]`, then `uv run python -m scripts.demo_check`.
+- Demo: `uv run python -m scripts.seed_demo [--reset | --if-missing]` (`SEED_DEMO=true` runs
+  `--if-missing` on container start, D54), then `uv run python -m scripts.demo_check`.
 - After an outage, or to backfill existing traders:
   `uv run python -m scripts.rebuild_graph --all` (or `--user 12`).
 - Health: `GET /health` → `{"status": "ok", "graph": "ok"}`.
