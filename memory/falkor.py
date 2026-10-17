@@ -170,6 +170,32 @@ ON CREATE SET x.text = $alias_text, x.kind = $kind
 CREATE (x)-[:REFERS_TO {valid_from: $at}]->(p)
 """ + _SOURCE
 
+CLOSE_ALIAS = """
+MATCH (a:Alias {key: $alias_key})-[r:REFERS_TO]->(p:Party)
+WHERE r.valid_to IS NULL AND ($party_key IS NULL OR p.key = $party_key)
+SET r.valid_to = $at, r.closed_by_turn = $turn_id, r.closed_by = $agent
+RETURN count(r)
+"""
+
+# Forgetting a party: everything learned about it goes; the party node and its debts stay,
+# because they mirror the ledger (which forgetting never touches). One statement per kind
+# keeps each simple and lets the adapter report what was removed.
+FORGET = {
+    "facts": "MATCH (x:Fact)-[:ABOUT]->(:Party {key: $key}) DETACH DELETE x RETURN count(x)",
+    "promises": "MATCH (x:Promise)-[:MADE_BY]->(:Party {key: $key}) DETACH DELETE x RETURN count(x)",
+    "reminders": "MATCH (x:Reminder)-[:SENT_TO]->(:Party {key: $key}) DETACH DELETE x RETURN count(x)",
+    "aliases": "MATCH (x:Alias)-[:REFERS_TO]->(:Party {key: $key}) DETACH DELETE x RETURN count(x)",
+    "stated_roles": ("MATCH (:Party {key: $key})-[r]->(:Trader) WHERE r.confidence = 'stated' "
+                     "DELETE r RETURN count(r)"),
+}
+# messages that no memory points at any more
+DROP_ORPHAN_MESSAGES = """
+MATCH (m:Message)
+WHERE NOT ()-[:LEARNED_FROM]->(m)
+DELETE m
+RETURN count(m)
+"""
+
 # a party with nothing attached: no debts, promises, facts, aliases or stated roles
 REMOVE_EMPTY_PARTY = """
 MATCH (p:Party {key: $key})
@@ -521,6 +547,22 @@ class FalkorGraphMemory:
         graph = await self._graph(user_id)
         await self._run(graph, ADD_ALIAS, {"alias_key": alias_key, "alias_text": alias_text, "party_key": party_key,
                                            "kind": kind, **self._source(source)}, "add_alias")
+
+    async def close_alias(self, user_id: int, alias_key: str, party_key: str | None, source: Source) -> int:
+        graph = await self._graph(user_id)
+        result = await self._run(graph, CLOSE_ALIAS, {"alias_key": alias_key, "party_key": party_key,
+                                                      **self._source(source)}, "close_alias")
+        return result.result_set[0][0] if result.result_set else 0
+
+    async def forget_party(self, user_id: int, party_key: str) -> dict:
+        graph = await self._graph(user_id)
+        counts = {}
+        for kind, cypher in FORGET.items():
+            result = await self._run(graph, cypher, {"key": party_key}, f"forget_{kind}")
+            counts[kind] = result.result_set[0][0] if result.result_set else 0
+        await self._run(graph, DROP_ORPHAN_MESSAGES, {}, "drop_orphan_messages")
+        logger.info("graph.forgot", graph=graph.name, **counts)
+        return counts
 
     async def remove_empty_party(self, user_id: int, party_key: str) -> bool:
         graph = await self._graph(user_id)

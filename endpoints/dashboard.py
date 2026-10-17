@@ -8,21 +8,23 @@ no tokens and always show the same thing for the same books. Everything is scope
 the logged-in user.
 """
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from pydantic import BaseModel
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from authentication.auth import get_current_user
 from config import business_today
-from db import ConversationTurn, TransactionORM, User, get_db_session
+from db import ConversationTurn, PartyAlias, TransactionORM, User, get_db_session
 from memory import get_graph_memory
 from memory.collector import Collector
-from memory.explain import explain
-from memory.models import GraphMemoryError
+from memory.curator import Curator
+from memory.explain import explain, resolve_party
+from memory.models import GraphMemoryError, Source
 from utils import logger
 
 router = APIRouter(prefix="/api/v1", tags=["dashboard"])
@@ -263,6 +265,50 @@ async def person(name: str, db: AsyncSession = Depends(get_db_session), user: Us
         raise HTTPException(status_code=404, detail=f"No one called {name} in your books.")
     return {"name": entries[0].party.strip() if entries else why.get("person", name),
             "entries": [_entry(r) for r in entries], "memory": why}
+
+
+class AliasRemoval(BaseModel):
+    alias: str
+
+
+def _trader_source() -> Source:
+    return Source(agent="trader", at=datetime.now(timezone.utc).isoformat(), turn_id=None)
+
+
+@router.post("/people/{name}/aliases/remove")
+async def remove_alias(name: str, body: AliasRemoval, db: AsyncSession = Depends(get_db_session),
+                       user: User = Depends(get_current_user)):
+    """"Not the same person": stop treating this name as them (kept as history)."""
+    memory = get_graph_memory()
+    try:
+        found = await resolve_party(memory, user.id, name)
+        if found is None:
+            raise HTTPException(status_code=404, detail=f"Nothing remembered about {name}.")
+        closed = await memory.close_alias(user.id, " ".join(body.alias.lower().split()), found[0], _trader_source())
+    except GraphMemoryError:
+        raise HTTPException(status_code=503, detail="Memory is unavailable right now. Try again shortly.")
+    if not closed:
+        raise HTTPException(status_code=404, detail=f'"{body.alias}" isn\'t linked to {found[1]}.')
+    await db.execute(delete(PartyAlias).where(PartyAlias.user_id == user.id,
+                                              PartyAlias.alias_key == body.alias.strip().lower()))
+    await db.commit()
+    logger.info("dashboard.alias_removed", user_id=user.id)
+    return {"removed": body.alias, "person": found[1]}
+
+
+@router.post("/people/{name}/forget")
+async def forget_person(name: str, db: AsyncSession = Depends(get_db_session),
+                        user: User = Depends(get_current_user)):
+    """Erase everything remembered about someone. Their entries in the books stay."""
+    memory = get_graph_memory()
+    try:
+        found = await resolve_party(memory, user.id, name)
+        if found is None:
+            raise HTTPException(status_code=404, detail=f"Nothing remembered about {name}.")
+        counts = await Curator(memory, _session(db)).forget(user.id, found[0])
+    except GraphMemoryError:
+        raise HTTPException(status_code=503, detail="Memory is unavailable right now. Try again shortly.")
+    return {"forgotten": found[1], "removed": counts}
 
 
 @router.get("/history")

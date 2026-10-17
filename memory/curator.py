@@ -30,10 +30,10 @@ from typing import Callable, Literal
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from config import LooseDate, business_today
-from db import TransactionORM
+from db import PartyAlias, TransactionORM
 from memory.models import GraphMemoryError, KnownName, Source
 from memory.ports import GraphMemory
 from memory.recall import Recalled, recall
@@ -42,6 +42,8 @@ from tools.ledger_events import ledger_events
 from utils import logger, provider_problem
 
 AGENT = "curator"
+# forget_person deletes memory for good: only when the trader's own words ask for it
+_FORGET_WORDS = ("forget", "delete", "erase", "remove", "clear", "comot", "wipe")
 UNCHANGED = "unchanged"  # _apply's answer when the memory was already there
 INFER_AFTER = 3  # identical sales in a row before a usual order is guessed
 
@@ -55,7 +57,8 @@ class OrderItem(BaseModel):
 
 
 class MemoryOp(BaseModel):
-    op: Literal["add_alias", "set_usual_order", "set_do_not_remind", "lift_do_not_remind", "set_role"]
+    op: Literal["add_alias", "remove_alias", "set_usual_order", "remove_usual_order", "set_do_not_remind",
+                "lift_do_not_remind", "set_role", "forget_person"]
     party: str = Field(description="The person, by the name listed under People")
     alias: str | None = Field(default=None, description="add_alias: the other name, exactly as the trader wrote it")
     items: list[OrderItem] | None = Field(default=None, description="set_usual_order")
@@ -78,6 +81,9 @@ Operations:
 - set_do_not_remind: don't remind or chase someone ("no remind Pastor John"). until = end date if given.
 - lift_do_not_remind: only when the trader clearly says reminding them is now fine ("you fit remind Pastor John now"). Asking for a reminder ("remind Pastor John") is NOT permission: the assistant checks with them first.
 - set_role: a role started or ended. "Musa dey supply my oil now" → supplier, active true. "E no dey buy from me again" → customer, active false.
+- remove_alias: the trader says a name is NOT that person ("Chidi's mum no be Mama Chidi"). party = the person, alias = the name.
+- remove_usual_order: someone no longer has a usual order, or the remembered one is wrong.
+- forget_person: only when the trader asks you to forget or delete what you know about someone. Never otherwise.
 Use names exactly as listed under People. said = the trader's own short words.
 Always answer with an object: {"ops": [...]}. Nothing to remember → {"ops": []}."""
 
@@ -296,6 +302,25 @@ class Curator:
             created += 1
         return created
 
+    async def forget(self, user_id: int, party_key: str) -> dict:
+        """Erase what's remembered about a party, in the graph and in the bank-name table.
+        The books (ledger entries) are untouched."""
+        counts = await self._memory.forget_party(user_id, party_key)
+        async with self._session_factory() as db:
+            result = await db.execute(delete(PartyAlias).where(
+                PartyAlias.user_id == user_id, func.lower(func.trim(PartyAlias.party)) == party_key))
+            await db.commit()
+        counts["bank_names"] = result.rowcount or 0
+        logger.info("curator.forgot", user_id=user_id, **counts)
+        return counts
+
+    async def _forget_bank_name(self, user_id: int, alias: str) -> None:
+        """A bank name the trader says isn't this person: also drop the old table's copy."""
+        async with self._session_factory() as db:
+            await db.execute(delete(PartyAlias).where(PartyAlias.user_id == user_id,
+                                                      PartyAlias.alias_key == alias.strip().lower()))
+            await db.commit()
+
     async def _ledger_entries(self, user_id: int, key: str) -> int:
         async with self._session_factory() as db:
             return (await db.execute(
@@ -461,6 +486,24 @@ class Curator:
             kind = "transcription" if "voice" in turn.message.lower() or turn.message.startswith("(voice note)") \
                 else "nickname"
             await self._memory.add_alias(uid, alias_key, op.alias.strip(), party, kind, source)
+            return None
+
+        if op.op == "remove_alias":
+            if not op.alias or not op.alias.strip():
+                return "no alias given"
+            closed = await self._memory.close_alias(uid, name_key(op.alias), party, source)
+            if closed:
+                await self._forget_bank_name(uid, op.alias)
+            return None if closed else UNCHANGED
+
+        if op.op == "remove_usual_order":
+            closed = await self._memory.close_fact(uid, party, "usual_order", source)
+            return None if closed else UNCHANGED
+
+        if op.op == "forget_person":
+            if not any(w in turn.message.lower() for w in _FORGET_WORDS):
+                return "not asked to forget"
+            await self.forget(uid, party)
             return None
 
         if op.op == "set_usual_order":

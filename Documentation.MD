@@ -884,6 +884,17 @@ Switching back to Groq is the same one-line setting.
 *Trade-off:* a request may land on different hosts behind OpenRouter, whose speed and
 quirks vary. Rehearse the demo on it before recording.
 
+**D49. Memories can be corrected and forgotten, by chat or by button.** The landing page
+promised "wrong? say so and it's corrected", but the curator could only add or replace. It
+now also has `remove_alias` ("Chidi's mum no be Mama Chidi": the link is closed, kept as
+history), `remove_usual_order`, and `forget_person`, which **deletes** everything learned
+about someone (aliases, facts, promises, reminders, stated roles, and their bank names in
+the old PartyAlias table) but never their entries in the books. Because it can't be
+undone, code only lets `forget_person` through if the trader's own message asks to forget,
+delete or remove. The People drawer has the same two actions as buttons ("Not the same
+person", "Forget what's remembered"), which call the graph directly with no model.
+Erasure on request also matters for third-party data under the NDPA.
+
 ### 9.5 Error handling
 
 | Where | Fails how | What happens |
@@ -971,6 +982,8 @@ All in `memory/falkor.py`:
 | `RECALL` | Roles, aliases, open debts, promises and facts for a set of parties |
 | `CURRENT_FACT`, `DEBT_PARTY`, `OPEN_PROMISES` | Small lookups the curator validates against |
 | `ADD_ALIAS` | Alias → party, with provenance |
+| `CLOSE_ALIAS` | "Not the same person": end an alias link (kept as history) |
+| `FORGET` (one per kind), `DROP_ORPHAN_MESSAGES` | Erase what's remembered about a party; the party and its debts stay |
 | `REMOVE_EMPTY_PARTY` | Delete a party with nothing attached (a misheard name folded into an alias) |
 | `ADD_PROMISE`, `SET_PROMISE_STATUS` | Promises and their outcomes |
 | `ADD_FACT`, `CLOSE_FACT` | Usual orders and do-not-remind; a new fact closes the old one (`valid_to`) |

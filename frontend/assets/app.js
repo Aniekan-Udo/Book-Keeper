@@ -571,7 +571,17 @@ async function openPerson(name) {
       const tl = el('div', 'timeline');
       (m.also_called || []).filter(a => a.status === 'current').forEach(a => {
         const item = el('div', 'tl'); const top = el('div', 'tl-top');
-        top.append(el('b', '', 'Also called “' + a.name + '”'), el('span', 'pill grey', a.kind)); item.append(top, provenance(a)); tl.append(item);
+        top.append(el('b', '', 'Also called “' + a.name + '”'), el('span', 'pill grey', a.kind)); item.append(top, provenance(a));
+        const wrong = el('button', 'linkish', 'Not the same person');
+        wrong.onclick = async () => {
+          if (!confirm(`Stop treating “${a.name}” as ${d.name}?`)) return;
+          const res = await api('/api/v1/people/' + encodeURIComponent(d.name) + '/aliases/remove', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ alias: a.name }) });
+          const out = await res.json().catch(() => ({}));
+          toast(res.ok ? `“${a.name}” is no longer linked to ${d.name}.` : errorText(out.detail, 'Could not change that.'));
+          openPerson(d.name); if ($('view-people').classList.contains('active')) loadPeople();
+        };
+        item.append(wrong); tl.append(item);
       });
       s.append(tl);
     }
@@ -599,6 +609,18 @@ async function openPerson(name) {
     if (m.reminders_sent?.length) {
       const r = sec('Reminders sent'); m.reminders_sent.forEach(x => r.append(el('div', 'line-item', `${shortDate(x.on)} · because of ${x.because_of_promises.length} promise(s)`)));
     }
+  }
+
+  if (!m.error) {
+    const forget = el('button', 'btn btn-ghost btn-sm danger', 'Forget what’s remembered about ' + d.name);
+    forget.onclick = async () => {
+      if (!confirm(`Erase everything Book-Keeper remembers about ${d.name}: nicknames, promises, usual order, notes? Their entries in your books stay.`)) return;
+      const res = await api('/api/v1/people/' + encodeURIComponent(d.name) + '/forget', { method: 'POST' });
+      const out = await res.json().catch(() => ({}));
+      toast(res.ok ? `Forgotten. ${d.name}'s entries in your books are unchanged.` : errorText(out.detail, 'Could not forget that.'));
+      openPerson(d.name); if ($('view-people').classList.contains('active')) loadPeople();
+    };
+    const fs = el('section'); fs.append(el('h3', '', 'Privacy'), forget); body.append(fs);
   }
 
   const es = el('section'); es.append(el('h3', '', 'Entries'));

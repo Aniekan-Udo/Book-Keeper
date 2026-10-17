@@ -215,6 +215,9 @@ body { overflow: hidden; }
 .quote { font-size: 13.5px; color: var(--ink-2); border-left: 3px solid var(--amber-500); padding-left: 10px; margin-top: 2px; }
 .prov { font-size: 12px; color: var(--muted); }
 
+.btn.danger { color: var(--red-600); border-color: #f2c4b9; }
+.btn.danger:hover { background: var(--red-100); }
+.tl .linkish { justify-self: start; font-size: 13px; }
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 16px;
          border-radius: 10px; font-size: 14px; z-index: 50; box-shadow: var(--shadow); max-width: calc(100% - 40px); }
 

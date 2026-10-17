@@ -40,6 +40,12 @@ class NullGraphMemory:
                         kind: str, source: Source) -> None:
         return None
 
+    async def close_alias(self, user_id: int, alias_key: str, party_key: str | None, source: Source) -> int:
+        return 0
+
+    async def forget_party(self, user_id: int, party_key: str) -> dict:
+        return {}
+
     async def remove_empty_party(self, user_id: int, party_key: str) -> bool:
         return False
 

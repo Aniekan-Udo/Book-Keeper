@@ -14,7 +14,7 @@ from langchain_core.messages import AIMessage
 
 from memory.curator import Curator, CuratorOutput, MemoryOp, OrderItem, Turn
 from memory.falkor import FalkorGraphMemory
-from memory.models import GraphMemoryError, KnownName, PartyMemory, PromiseView, FactView
+from memory.models import GraphMemoryError, KnownName, PartyMemory, PromiseView, FactView, Source
 from memory.recall import Recalled, match_names, prompt_section, recall
 from memory.sync import GraphSync
 from tools.ledger import TransactionInput, correct_transaction, persist_transactions
@@ -491,3 +491,85 @@ async def test_a_host_without_json_schema_output_falls_back_to_tool_calling(worl
     op = MemoryOp(op="set_do_not_remind", party="Pastor John", said="no remind am")
     outcome = await world.curator(NoJsonSchema([op])).curate(await world.turn("No remind Pastor John"))
     assert outcome.applied == ["set_do_not_remind"]
+
+
+# ── correcting and forgetting ────────────────────────────────────────────────
+
+async def test_the_trader_can_say_a_name_is_not_that_person(world):
+    await world.record(credit_sale("Mama Chidi", 45000))
+    await world.mem.add_alias(world.user_id, "chidi's mum", "Chidi's mum", "mama chidi", "nickname",
+                              Source(agent="curator", at="2026-09-10T10:00:00Z", turn_id=None))
+    model = ScriptedModel([MemoryOp(op="remove_alias", party="Mama Chidi", alias="Chidi's mum")])
+    outcome = await world.curator(model).curate(await world.turn("Chidi's mum no be Mama Chidi o"))
+
+    assert outcome.applied == ["remove_alias"]
+    [memory] = await world.mem.recall(world.user_id, ["mama chidi"])
+    assert memory.aliases == ()
+    # closed, not deleted: the history is still there for "why?"
+    assert await world.rows("MATCH (:Alias)-[r:REFERS_TO]->() RETURN r.valid_to IS NOT NULL") == [[True]]
+
+
+async def test_forgetting_needs_the_trader_to_ask(world):
+    await world.record(credit_sale("Emeka", 36000, due=date(2026, 9, 24)))
+    op = MemoryOp(op="forget_person", party="Emeka")
+    outcome = await world.curator(ScriptedModel([op])).curate(await world.turn("Emeka is a good man"))
+    assert outcome.rejected == [("forget_person", "not asked to forget")]
+
+
+async def test_forgetting_erases_memory_but_never_the_books(world):
+    [entry] = await world.record(credit_sale("Emeka", 36000, due=date(2026, 9, 24)))
+    await world.curator().curate(await world.turn("Emeka take oil, he go pay Thursday", touched=[entry]))
+    await world.mem.add_alias(world.user_id, "nwosu emeka", "NWOSU EMEKA", "emeka", "bank_name",
+                              Source(agent="alert_matcher", at="2026-09-14T10:00:00Z", turn_id=101))
+    await world.mem.set_fact(world.user_id, "emeka", "do_not_remind", "do not remind",
+                             Source(agent="curator", at="2026-09-15T10:00:00Z", turn_id=102), "stated")
+    from db import PartyAlias
+    world.db.add(PartyAlias(user_id=world.user_id, alias_key="nwosu emeka", party="Emeka"))
+    await world.db.commit()
+
+    op = MemoryOp(op="forget_person", party="Emeka")
+    outcome = await world.curator(ScriptedModel([op])).curate(
+        await world.turn("abeg forget everything you know about Emeka", turn_id=103))
+
+    assert outcome.applied == ["forget_person"]
+    for label in ("Alias", "Fact", "Promise", "Message"):
+        assert await world.rows(f"MATCH (x:{label}) RETURN count(x)") == [[0]], label
+    assert await world.rows("MATCH (d:Debt)-[:WITH]->(:Party {key:'emeka'}) RETURN count(d)") == [[1]]  # books mirror stays
+    assert (await world.db.execute(select_party_aliases(world.user_id))).all() == []
+    from tools.ledger import ZERO
+    from db import TransactionORM
+    row = await world.db.get(TransactionORM, entry["id"])
+    assert row.outstanding > ZERO  # the debt itself is untouched
+
+
+def select_party_aliases(user_id):
+    from sqlalchemy import select
+    from db import PartyAlias
+    return select(PartyAlias.id).where(PartyAlias.user_id == user_id)
+
+
+async def test_app_buttons_remove_a_nickname_and_forget_a_person(world, new_browser, test_user):
+    """The People drawer's two buttons, with no model in between."""
+    from memory import set_graph_memory
+    from memory.null import NullGraphMemory
+
+    await world.record(credit_sale("Mama Chidi", 45000))
+    await world.mem.add_alias(world.user_id, "mama c", "Mama C", "mama chidi", "nickname",
+                              Source(agent="curator", at="2026-09-24T10:00:00Z", turn_id=None))
+    set_graph_memory(world.mem)
+    try:
+        browser = await new_browser()
+        await browser.post("/login", json={"email": test_user.email, "password": "correct-horse-battery-staple"})
+        assert (await browser.post("/api/v1/people/Mama Chidi/aliases/remove", json={"alias": "Mummy C"})).status_code == 404
+        res = await browser.post("/api/v1/people/Mama Chidi/aliases/remove", json={"alias": "Mama C"})
+        assert res.status_code == 200 and res.json()["person"] == "Mama Chidi"
+        [memory] = await world.mem.recall(world.user_id, ["mama chidi"])
+        assert memory.aliases == ()
+
+        await world.mem.set_fact(world.user_id, "mama chidi", "usual_order", "1 bag rice",
+                                 Source(agent="curator", at="2026-09-25T10:00:00Z", turn_id=None), "inferred")
+        res = await browser.post("/api/v1/people/Mama Chidi/forget")
+        assert res.status_code == 200 and res.json()["removed"]["facts"] == 1
+        assert await world.rows("MATCH (f:Fact) RETURN count(f)") == [[0]]
+    finally:
+        set_graph_memory(NullGraphMemory())

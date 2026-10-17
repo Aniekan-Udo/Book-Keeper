@@ -65,6 +65,17 @@ class GraphMemory(Protocol):
                         kind: str, source: Source) -> None:
         ...
 
+    async def close_alias(self, user_id: int, alias_key: str, party_key: str | None, source: Source) -> int:
+        """Stop treating a name as this party (or as anyone, if party_key is None). The alias is
+        closed (valid_to), not deleted: history stays true. Returns how many links were closed."""
+        ...
+
+    async def forget_party(self, user_id: int, party_key: str) -> dict:
+        """Erase what's remembered about a party: aliases, facts, promises, reminders, stated
+        roles. The party and its debts stay: they mirror the ledger, which is never touched.
+        Returns counts of what was deleted."""
+        ...
+
     async def remove_empty_party(self, user_id: int, party_key: str) -> bool:
         """Delete a party that has no debts, promises or facts (e.g. a misheard name that
         turned out to be an alias). Returns True if it was deleted."""
